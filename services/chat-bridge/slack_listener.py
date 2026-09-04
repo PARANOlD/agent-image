@@ -47,14 +47,23 @@ class SlackListener:
         def handle_message(event, say):
             if "bot_id" in event or event.get("subtype"):
                 return
-            if self._already_handled(event["channel"], event["ts"]):
-                return
+            # Dedup check must happen per-branch, right before an actual
+            # dispatch -- not unconditionally at the top. Slack sends both
+            # "message" and "app_mention" for a channel mention; a top-level
+            # channel message matches neither branch below and does nothing,
+            # but marking it "seen" anyway used to poison the dedup set for
+            # the app_mention event that follows, silently swallowing every
+            # channel mention.
             if event.get("channel_type") == "im":
+                if self._already_handled(event["channel"], event["ts"]):
+                    return
                 self._dispatch(event, say, allow_new=True)
             elif event.get("thread_ts"):
                 # A threaded reply in a channel, no @mention -- only continue
                 # a thread Gary is already in (decided downstream in app.py
                 # via state.py), never start a fresh conversation from it.
+                if self._already_handled(event["channel"], event["ts"]):
+                    return
                 self._dispatch(event, say, allow_new=False)
 
     def _dispatch(self, event, say, allow_new: bool):
