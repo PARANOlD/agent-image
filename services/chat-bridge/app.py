@@ -13,6 +13,7 @@ import threading
 import state
 from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
+from intent_gate import is_directed_at_gary
 from openhands_client import OpenHandsClient
 from slack_listener import SlackListener
 
@@ -43,6 +44,9 @@ def main():
             conversation_id = openhands.create_conversation(initial_message=text, repo=repo)
             state.link_thread(surface, thread_key, conversation_id)
         else:
+            if not allow_new and not is_directed_at_gary(text):
+                log.info("Passive reply on %s/%s judged not directed at Gary, staying quiet", surface, thread_key)
+                return None
             log.info("Continuing conversation %s for %s/%s", conversation_id, surface, thread_key)
             openhands.send_message(conversation_id, text)
 
