@@ -12,6 +12,8 @@ import time
 from datetime import datetime, timezone
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 import state
 
@@ -28,6 +30,13 @@ class GitHubPoller:
         self.interval = interval
         self.on_mention = on_mention  # callback(thread_key, repo, issue_number, comment_body, comment_url)
         self.session = requests.Session()
+        # A long-lived Session polling every 30s occasionally reuses a
+        # keep-alive connection GitHub's end has already closed, surfacing as
+        # ConnectionError("Remote end closed connection without response").
+        # Retry transparently instead of dropping a whole poll cycle.
+        retry = Retry(total=3, backoff_factor=0.5, connect=3, read=3,
+                       allowed_methods=["GET", "POST"])
+        self.session.mount("https://", HTTPAdapter(max_retries=retry))
 
     def _headers(self) -> dict:
         return {

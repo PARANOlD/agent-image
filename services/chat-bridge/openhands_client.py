@@ -92,11 +92,17 @@ class OpenHandsClient:
     def wait_for_reply(self, conversation_id: str) -> str:
         deadline = time.monotonic() + self.reply_timeout
         while time.monotonic() < deadline:
-            resp = self.session.get(f"{self.base_url}/api/conversations/{conversation_id}", timeout=15)
-            resp.raise_for_status()
-            status = resp.json().get("execution_status")
-            if status in TERMINAL_STATUSES:
-                break
+            try:
+                resp = self.session.get(f"{self.base_url}/api/conversations/{conversation_id}", timeout=15)
+                resp.raise_for_status()
+                status = resp.json().get("execution_status")
+                if status in TERMINAL_STATUSES:
+                    break
+            except requests.RequestException:
+                # A single slow/dropped poll shouldn't abort the whole wait --
+                # this box is resource-constrained and a status check can
+                # occasionally stall while the LLM call itself is in flight.
+                log.warning("Transient error polling conversation %s, retrying", conversation_id)
             time.sleep(self.poll_interval)
         else:
             return "The agent is still working on this -- it's taking longer than expected, check back shortly."
