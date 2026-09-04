@@ -6,11 +6,17 @@ continues the same underlying conversation instead of starting a new one.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent.parent / "state" / "bridge.db"
+# NOT Path(__file__).parent.parent.parent -- that assumed the host's nested
+# services/chat-bridge/ layout, but the Dockerfile copies files flat into
+# /app, so it silently resolved to /state/bridge.db (outside the ./state
+# bind mount) instead. Bug: conversation continuity was never actually
+# persisted -- every restart lost the surface->conversation_id mapping.
+DB_PATH = Path(os.environ.get("STATE_DIR", "/app/state")) / "bridge.db"
 
 _lock = threading.Lock()
 
