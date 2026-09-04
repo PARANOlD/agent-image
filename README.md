@@ -39,7 +39,7 @@ Don't paste these into chat with me — edit `.env` directly.
 1. https://api.slack.com/apps → **Create New App** → From scratch.
 2. **Socket Mode** → enable it → generate an app-level token with the `connections:write` scope → this is `SLACK_APP_TOKEN` (`xapp-...`).
 3. **OAuth & Permissions** → Bot Token Scopes: `app_mentions:read`, `chat:write`, `im:history`, `channels:history`. Install to workspace → this is `SLACK_BOT_TOKEN` (`xoxb-...`).
-4. **Event Subscriptions** → enable, subscribe to bot events: `app_mention`, `message.im`.
+4. **Event Subscriptions** → enable, subscribe to bot events: `app_mention`, `message.im`, `message.channels` (and `message.groups` for private channels) -- the last two let Gary auto-continue a thread he's already in without being re-@mentioned on every reply.
 5. Invite the bot to whichever channel you want it in.
 
 ## Bring the stack up

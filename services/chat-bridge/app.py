@@ -30,11 +30,15 @@ def env(name: str, default: str | None = None, required: bool = False) -> str:
 def main():
     openhands = OpenHandsClient(base_url=env("OPENHANDS_API_BASE", "http://openhands:8000"))
 
-    def handle(surface: str, thread_key: str, text: str, repo: str | None = None) -> str:
+    def handle(surface: str, thread_key: str, text: str, repo: str | None = None,
+               allow_new: bool = True) -> str | None:
         """Route an inbound message to a new-or-existing OpenHands conversation
-        and return the agent's reply text."""
+        and return the agent's reply text, or None if nothing should happen
+        (a passive threaded reply into a thread Gary was never in)."""
         conversation_id = state.get_conversation_id(surface, thread_key)
         if conversation_id is None:
+            if not allow_new:
+                return None
             log.info("New conversation for %s/%s", surface, thread_key)
             conversation_id = openhands.create_conversation(initial_message=text, repo=repo)
             state.link_thread(surface, thread_key, conversation_id)
@@ -50,9 +54,11 @@ def main():
     slack_app_token = env("SLACK_APP_TOKEN")
     slack_signing_secret = env("SLACK_SIGNING_SECRET")
     if slack_bot_token and slack_app_token and slack_signing_secret:
-        def on_slack_message(thread_key: str, text: str, reply):
+        def on_slack_message(thread_key: str, text: str, reply, allow_new: bool):
             try:
-                reply(handle("slack", thread_key, text))
+                response = handle("slack", thread_key, text, allow_new=allow_new)
+                if response is not None:
+                    reply(response)
             except Exception:
                 log.exception("Failed handling Slack message on %s", thread_key)
                 reply("Something went wrong handling that -- check chat-bridge logs.")
