@@ -22,12 +22,18 @@ Installs the `docker compose` plugin and `nvidia-container-toolkit`, wires up th
 cp .env.example .env
 ```
 Fill in:
-- `GITHUB_TOKEN` — a fine-grained PAT scoped to the repos you list in `GITHUB_REPOS`, with **Contents**, **Issues**, and **Pull requests** read/write.
+- `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID` / `GITHUB_APP_PRIVATE_KEY_FILENAME` — see below.
 - `GITHUB_REPOS` — comma-separated `owner/repo` list to watch for `@agent` mentions.
 - `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` — see below.
 - `OPENHANDS_API_KEY` — any random string (`openssl rand -hex 32`); authenticates chat-bridge to the openhands API.
 
 Don't paste these into chat with me — edit `.env` directly.
+
+### GitHub access (via a GitHub App, not a PAT)
+1. https://github.com/settings/apps/new → give it repo-scoped permissions (Contents, Issues, Pull requests: read/write). Under **Webhook**, uncheck **Active** — we poll instead of receiving webhooks, no public endpoint needed.
+2. On the app's settings page: **Generate a private key** → downloads a `.pem` file. Save it into `./secrets/` (create the directory if needed) and set `GITHUB_APP_PRIVATE_KEY_FILENAME` to its filename.
+3. **Install App** on the repo(s) you want it to work on → note the installation ID from the URL at github.com/settings/installations → `GITHUB_APP_INSTALLATION_ID`.
+4. `chat-bridge` mints its own short-lived tokens per-request from these (see `services/chat-bridge/github_app_auth.py`). The `openhands` container's own git operations use a separately-minted, longer-lived-in-`.env` token — run `./scripts/mint-github-app-token.sh` once initially and again whenever it expires (~hourly; git push/clone in the sandbox will start failing auth when it has).
 
 ### Creating the Slack app
 1. https://api.slack.com/apps → **Create New App** → From scratch.

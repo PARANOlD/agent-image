@@ -1,4 +1,5 @@
 .env
+secrets/
 state/*.db
 state/*.db-*
 workspace/*

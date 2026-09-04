@@ -1,2 +1,4 @@
 slack-bolt==1.21.*
 requests==2.32.*
+PyJWT==2.9.*
+cryptography==43.*

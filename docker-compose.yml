@@ -76,5 +76,7 @@ services:
       - .env
     environment:
       - OPENHANDS_API_BASE=http://openhands:8000
+      - GITHUB_APP_PRIVATE_KEY_PATH=/app/secrets/${GITHUB_APP_PRIVATE_KEY_FILENAME:-gary-app.pem}
     volumes:
       - ./state:/app/state
+      - ./secrets:/app/secrets:ro

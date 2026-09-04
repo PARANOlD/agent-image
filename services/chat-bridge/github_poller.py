@@ -21,20 +21,20 @@ GITHUB_API = "https://api.github.com"
 
 
 class GitHubPoller:
-    def __init__(self, token: str, repos: list[str], trigger: str, interval: int, on_mention):
-        self.token = token
-        self.repos = repos
+    def __init__(self, auth, repos: list[str], trigger: str, interval: int, on_mention):
+        self.auth = auth  # GitHubAppAuth -- installation tokens expire hourly, so we
+        self.repos = repos  # fetch a fresh one per request rather than caching a header.
         self.trigger = trigger.lower()
         self.interval = interval
         self.on_mention = on_mention  # callback(thread_key, repo, issue_number, comment_body, comment_url)
         self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            }
-        )
+
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.auth.get_token()}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
 
     def run_forever(self):
         log.info("Watching %s for %r mentions every %ss", self.repos, self.trigger, self.interval)
@@ -53,6 +53,7 @@ class GitHubPoller:
         resp = self.session.get(
             f"{GITHUB_API}/repos/{repo}/issues/comments",
             params={"since": since, "sort": "created", "direction": "asc", "per_page": 100},
+            headers=self._headers(),
             timeout=15,
         )
         resp.raise_for_status()
@@ -83,6 +84,7 @@ class GitHubPoller:
         resp = self.session.post(
             f"{GITHUB_API}/repos/{repo}/issues/{issue_number}/comments",
             json={"body": body},
+            headers=self._headers(),
             timeout=15,
         )
         resp.raise_for_status()

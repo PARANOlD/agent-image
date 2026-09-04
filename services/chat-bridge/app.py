@@ -11,6 +11,7 @@ import os
 import threading
 
 import state
+from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
 from openhands_client import OpenHandsClient
 from slack_listener import SlackListener
@@ -60,9 +61,11 @@ def main():
     else:
         log.warning("SLACK_BOT_TOKEN/SLACK_APP_TOKEN not set -- Slack listener disabled")
 
-    github_token = env("GITHUB_TOKEN")
+    github_app_id = env("GITHUB_APP_ID")
+    github_private_key_path = env("GITHUB_APP_PRIVATE_KEY_PATH")
+    github_installation_id = env("GITHUB_APP_INSTALLATION_ID")
     github_repos = [r.strip() for r in env("GITHUB_REPOS").split(",") if r.strip()]
-    if github_token and github_repos:
+    if github_app_id and github_private_key_path and github_installation_id and github_repos:
         def on_github_mention(thread_key: str, repo: str, issue_number: str, body: str, url: str):
             try:
                 reply = handle("github", thread_key, body, repo=repo)
@@ -70,8 +73,13 @@ def main():
             except Exception:
                 log.exception("Failed handling GitHub mention on %s", thread_key)
 
+        auth = GitHubAppAuth(
+            app_id=github_app_id,
+            private_key_path=github_private_key_path,
+            installation_id=github_installation_id,
+        )
         poller = GitHubPoller(
-            token=github_token,
+            auth=auth,
             repos=github_repos,
             trigger=env("GITHUB_TRIGGER", "@agent"),
             interval=int(env("GITHUB_POLL_INTERVAL", "30")),
@@ -79,7 +87,10 @@ def main():
         )
         threads.append(threading.Thread(target=poller.run_forever, daemon=True, name="github"))
     else:
-        log.warning("GITHUB_TOKEN/GITHUB_REPOS not set -- GitHub listener disabled")
+        log.warning(
+            "GITHUB_APP_ID/GITHUB_APP_PRIVATE_KEY_PATH/GITHUB_APP_INSTALLATION_ID/GITHUB_REPOS "
+            "not fully set -- GitHub listener disabled"
+        )
 
     if not threads:
         raise RuntimeError("Neither Slack nor GitHub is configured -- nothing to do")
