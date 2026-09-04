@@ -39,7 +39,7 @@ services:
   # per-conversation in the API request body by chat-bridge, not set here.
   openhands:
     image: ${OPENHANDS_IMAGE:-ghcr.io/openhands/agent-server:1.26.0-python}
-    command: ["python", "-m", "openhands.agent_server", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["--host", "0.0.0.0", "--port", "8000", "--import-modules", "openhands.tools"]
     restart: unless-stopped
     networks:
       - agentnet
@@ -53,6 +53,12 @@ services:
       - OH_SESSION_API_KEYS_0=${OPENHANDS_API_KEY:-}
       - OH_SECRET_KEY=${OPENHANDS_SECRET_KEY:-}
       - LOG_ALL_EVENTS=true
+      # /workspace is bind-mounted from the host (owned by your host user) but
+      # the container runs as uid 10001 -- git refuses to operate in a
+      # directory it doesn't own ("dubious ownership") unless told it's safe.
+      - GIT_CONFIG_COUNT=1
+      - GIT_CONFIG_KEY_0=safe.directory
+      - GIT_CONFIG_VALUE_0=/workspace
     volumes:
       - openhands_state:/.openhands
       - ./workspace:/workspace

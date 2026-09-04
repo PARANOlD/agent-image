@@ -56,7 +56,20 @@ class OpenHandsClient:
             text = f"You are working on the GitHub repository {repo}. {initial_message}"
 
         body = {
-            "agent": {"kind": "Agent", "llm": self._llm_config()},
+            "agent": {
+                "kind": "Agent",
+                "llm": self._llm_config(),
+                # Registered tool names are lowercase snake_case (confirmed via
+                # GET /api/tools/ on a live server) -- the OpenAPI schema's own
+                # examples ("TerminalTool" etc.) are stale/wrong, don't trust them.
+                # Requires the server started with --import-modules openhands.tools
+                # (see docker-compose.yml).
+                "tools": [
+                    {"name": "terminal", "params": {}},
+                    {"name": "file_editor", "params": {}},
+                    {"name": "task_tracker", "params": {}},
+                ],
+            },
             "workspace": {"working_dir": "/workspace"},
             "initial_message": {
                 "role": "user",
