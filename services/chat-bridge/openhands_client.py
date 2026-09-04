@@ -68,7 +68,12 @@ class OpenHandsClient:
             # "params": {}} -- the OpenAPI schema's own examples ("TerminalTool"
             # etc.) are stale/wrong. Requires --import-modules openhands.tools
             # on the server (see docker-compose.yml).
-            "agent": {"kind": "Agent", "llm": self._llm_config()},
+            #
+            # include_default_tools must be explicitly emptied -- leaving out
+            # "tools" alone doesn't disable it, and it defaults to
+            # ["FinishTool", "ThinkTool"], so the model was still trying (and
+            # failing, same as above) to call ThinkTool on every message.
+            "agent": {"kind": "Agent", "llm": self._llm_config(), "include_default_tools": []},
             "workspace": {"working_dir": "/workspace"},
             "initial_message": {
                 "role": "user",
