@@ -48,7 +48,8 @@ def main():
 
     slack_bot_token = env("SLACK_BOT_TOKEN")
     slack_app_token = env("SLACK_APP_TOKEN")
-    if slack_bot_token and slack_app_token:
+    slack_signing_secret = env("SLACK_SIGNING_SECRET")
+    if slack_bot_token and slack_app_token and slack_signing_secret:
         def on_slack_message(thread_key: str, text: str, reply):
             try:
                 reply(handle("slack", thread_key, text))
@@ -56,10 +57,10 @@ def main():
                 log.exception("Failed handling Slack message on %s", thread_key)
                 reply("Something went wrong handling that -- check chat-bridge logs.")
 
-        slack = SlackListener(slack_bot_token, slack_app_token, on_slack_message)
+        slack = SlackListener(slack_bot_token, slack_app_token, slack_signing_secret, on_slack_message)
         threads.append(threading.Thread(target=slack.run_forever, daemon=True, name="slack"))
     else:
-        log.warning("SLACK_BOT_TOKEN/SLACK_APP_TOKEN not set -- Slack listener disabled")
+        log.warning("SLACK_BOT_TOKEN/SLACK_APP_TOKEN/SLACK_SIGNING_SECRET not fully set -- Slack listener disabled")
 
     github_app_id = env("GITHUB_APP_ID")
     github_private_key_path = env("GITHUB_APP_PRIVATE_KEY_PATH")

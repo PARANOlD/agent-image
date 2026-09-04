@@ -10,10 +10,13 @@ log = logging.getLogger("slack_listener")
 
 
 class SlackListener:
-    def __init__(self, bot_token: str, app_token: str, on_message):
+    def __init__(self, bot_token: str, app_token: str, signing_secret: str, on_message):
         self.app_token = app_token
         self.on_message = on_message  # callback(thread_key, channel, text, say_fn)
-        self.app = App(token=bot_token)
+        # signing_secret is unused for actual verification in Socket Mode (no
+        # inbound HTTP requests to verify) but slack_bolt's App() requires a
+        # non-empty value regardless.
+        self.app = App(token=bot_token, signing_secret=signing_secret)
         self._register_handlers()
 
     def _register_handlers(self):

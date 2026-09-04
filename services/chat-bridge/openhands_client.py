@@ -56,20 +56,19 @@ class OpenHandsClient:
             text = f"You are working on the GitHub repository {repo}. {initial_message}"
 
         body = {
-            "agent": {
-                "kind": "Agent",
-                "llm": self._llm_config(),
-                # Registered tool names are lowercase snake_case (confirmed via
-                # GET /api/tools/ on a live server) -- the OpenAPI schema's own
-                # examples ("TerminalTool" etc.) are stale/wrong, don't trust them.
-                # Requires the server started with --import-modules openhands.tools
-                # (see docker-compose.yml).
-                "tools": [
-                    {"name": "terminal", "params": {}},
-                    {"name": "file_editor", "params": {}},
-                    {"name": "task_tracker", "params": {}},
-                ],
-            },
+            # No tools attached: tested qwen2.5-coder (1.5b, 3b) and qwen3:1.7b
+            # via Ollama and none reliably emit real tool_calls (they either
+            # print JSON-shaped text as plain content, or reason it through and
+            # never emit the call at all -- confirmed at the Ollama API level,
+            # not an openhands issue). Asking for tools it can't actually
+            # invoke just produces garbage output, so chat-only until a bigger
+            # GPU (RTX 5060 Ti) is in and this gets revisited. Registered tool
+            # names, when we do re-enable this, are lowercase snake_case
+            # (confirmed via GET /api/tools/) -- e.g. {"name": "terminal",
+            # "params": {}} -- the OpenAPI schema's own examples ("TerminalTool"
+            # etc.) are stale/wrong. Requires --import-modules openhands.tools
+            # on the server (see docker-compose.yml).
+            "agent": {"kind": "Agent", "llm": self._llm_config()},
             "workspace": {"working_dir": "/workspace"},
             "initial_message": {
                 "role": "user",
