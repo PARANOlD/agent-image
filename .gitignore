@@ -1,0 +1,8 @@
+.env
+state/*.db
+state/*.db-*
+workspace/*
+!workspace/.gitkeep
+.openhands/
+*.pyc
+__pycache__/

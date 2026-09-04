@@ -1,0 +1,96 @@
+"""Client for openhands-agent-server's REST API (run standalone, not the
+"classic" Socket.IO app -- see docker-compose.yml comment on the openhands
+service for why).
+
+Endpoints (verified against openhands/software-agent-sdk source, Sept 2026):
+  POST /api/conversations                          -- create + optionally start
+  POST /api/conversations/{id}/events               -- send a follow-up message
+  POST /api/conversations/{id}/run                  -- start if not auto-run
+  GET  /api/conversations/{id}                      -- ConversationInfo.execution_status
+  GET  /api/conversations/{id}/agent_final_response -- {"response": "..."}
+
+`workspace.working_dir` beyond a bare path, and any dedicated "clone this repo"
+field, weren't confirmed by research -- so repo targeting is done by telling
+the agent which repo/issue it's working on in the initial message text and
+relying on its GitHub-aware tools + the GITHUB_TOKEN already on the
+openhands container. If that proves unreliable in testing, check
+docs.openhands.dev/sdk for a proper `workspace` repo field and switch to it.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import time
+
+import requests
+
+log = logging.getLogger("openhands_client")
+
+TERMINAL_STATUSES = {"finished", "error", "stuck"}
+
+
+class OpenHandsClient:
+    def __init__(self, base_url: str, api_key: str | None = None, model: str | None = None,
+                 llm_base_url: str | None = None):
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key or os.environ.get("OPENHANDS_API_KEY", "")
+        self.model = model or f"openai/{os.environ.get('OLLAMA_MODEL', 'qwen2.5-coder:1.5b-instruct-q4_K_M')}"
+        self.llm_base_url = llm_base_url or "http://ollama:11434/v1"
+        self.reply_timeout = int(os.environ.get("OPENHANDS_REPLY_TIMEOUT", "900"))
+        self.poll_interval = int(os.environ.get("OPENHANDS_POLL_INTERVAL", "5"))
+        self.session = requests.Session()
+        if self.api_key:
+            self.session.headers["X-Session-API-Key"] = self.api_key
+
+    def _llm_config(self) -> dict:
+        return {
+            "usage_id": "main",
+            "model": self.model,
+            "base_url": self.llm_base_url,
+            "api_key": "dummy",
+        }
+
+    def create_conversation(self, initial_message: str, repo: str | None = None) -> str:
+        text = initial_message
+        if repo:
+            text = f"You are working on the GitHub repository {repo}. {initial_message}"
+
+        body = {
+            "agent": {"kind": "Agent", "llm": self._llm_config()},
+            "workspace": {"working_dir": "/workspace"},
+            "initial_message": {
+                "role": "user",
+                "content": [{"type": "text", "text": text}],
+                "run": True,
+            },
+        }
+        resp = self.session.post(f"{self.base_url}/api/conversations", json=body, timeout=30)
+        resp.raise_for_status()
+        conversation_id = resp.json()["id"]
+        log.info("Created conversation %s", conversation_id)
+        return conversation_id
+
+    def send_message(self, conversation_id: str, text: str) -> None:
+        body = {"role": "user", "content": [{"type": "text", "text": text}], "run": True}
+        resp = self.session.post(
+            f"{self.base_url}/api/conversations/{conversation_id}/events", json=body, timeout=30
+        )
+        resp.raise_for_status()
+
+    def wait_for_reply(self, conversation_id: str) -> str:
+        deadline = time.monotonic() + self.reply_timeout
+        while time.monotonic() < deadline:
+            resp = self.session.get(f"{self.base_url}/api/conversations/{conversation_id}", timeout=15)
+            resp.raise_for_status()
+            status = resp.json().get("execution_status")
+            if status in TERMINAL_STATUSES:
+                break
+            time.sleep(self.poll_interval)
+        else:
+            return "The agent is still working on this -- it's taking longer than expected, check back shortly."
+
+        resp = self.session.get(
+            f"{self.base_url}/api/conversations/{conversation_id}/agent_final_response", timeout=15
+        )
+        resp.raise_for_status()
+        return resp.json().get("response") or "(no response text)"

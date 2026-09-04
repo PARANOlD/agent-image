@@ -1,0 +1,80 @@
+networks:
+  agentnet:
+    driver: bridge
+
+volumes:
+  ollama_data:
+  openhands_state:
+
+services:
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    restart: unless-stopped
+    networks:
+      - agentnet
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_CONTEXT_LENGTH=${OLLAMA_CONTEXT_LENGTH:-24576}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # Runs openhands-agent-server standalone (REST API on :8000) rather than the
+  # "classic" UI app -- we drive it entirely from chat-bridge, so we don't
+  # need the classic app's own Socket.IO web UI or its docker-socket-mounted
+  # per-task sandbox containers. LLM config (model/base_url/api_key) is sent
+  # per-conversation in the API request body by chat-bridge, not set here.
+  openhands:
+    image: ${OPENHANDS_IMAGE:-ghcr.io/openhands/agent-server:1.26.0-python}
+    command: ["python", "-m", "openhands.agent_server", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+    networks:
+      - agentnet
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - OH_SESSION_API_KEYS_0=${OPENHANDS_API_KEY:-}
+      - OH_SECRET_KEY=${OPENHANDS_SECRET_KEY:-}
+      - LOG_ALL_EVENTS=true
+    volumes:
+      - openhands_state:/.openhands
+      - ./workspace:/workspace
+    healthcheck:
+      # A 401 (no auth header) still proves the server is up and listening.
+      test: ["CMD", "python", "-c", "import urllib.request as u, urllib.error as e\ntry:\n u.urlopen('http://localhost:8000/api/conversations', timeout=3)\nexcept e.HTTPError:\n pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  chat-bridge:
+    build: ./services/chat-bridge
+    image: gary-chat-bridge:local
+    restart: unless-stopped
+    networks:
+      - agentnet
+    depends_on:
+      openhands:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - OPENHANDS_API_BASE=http://openhands:8000
+    volumes:
+      - ./state:/app/state
