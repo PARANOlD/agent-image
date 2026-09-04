@@ -28,6 +28,12 @@ log = logging.getLogger("openhands_client")
 
 TERMINAL_STATUSES = {"finished", "error", "stuck"}
 
+PERSONA = (
+    "Your name is Gary. When asked who you are, introducing yourself, or "
+    "signing off, refer to yourself as Gary -- not as \"OpenHands\" or "
+    "\"an OpenHands agent\"."
+)
+
 
 class OpenHandsClient:
     def __init__(self, base_url: str, api_key: str | None = None, model: str | None = None,
@@ -73,7 +79,14 @@ class OpenHandsClient:
             # "tools" alone doesn't disable it, and it defaults to
             # ["FinishTool", "ThinkTool"], so the model was still trying (and
             # failing, same as above) to call ThinkTool on every message.
-            "agent": {"kind": "Agent", "llm": self._llm_config(), "include_default_tools": []},
+            "agent": {
+                "kind": "Agent",
+                "llm": self._llm_config(),
+                "include_default_tools": [],
+                # Appends to the default system prompt rather than replacing
+                # it (which would lose OpenHands' own tool/repo instructions).
+                "agent_context": {"system_message_suffix": PERSONA},
+            },
             "workspace": {"working_dir": "/workspace"},
             "initial_message": {
                 "role": "user",
