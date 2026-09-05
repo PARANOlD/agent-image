@@ -4,7 +4,19 @@
 **Qwen** model (via Ollama, GPU-accelerated), reachable from **Slack** and
 from **GitHub** issue/PR comments, with a single conversation continuable
 from either surface. Containerized, versioned, and mirrorable to Azure
-Container Registry for delivery to other machines.
+Container Registry for delivery to other machines. See [OFFERING.md](OFFERING.md)
+for the longer-term vision and phased roadmap this fits into.
+
+## Current status (2026-09-05)
+**Chat-only.** No tools (`terminal`/`file_editor`/`task_tracker`) are attached
+to conversations right now — every model tested on the current GTX 1050
+(qwen2.5-coder 1.5b/3b, qwen3:1.7b) failed to reliably emit real tool calls
+through Ollama. Gary can hold a conversation, but can't yet read files, run
+commands, or open PRs. Revisit `include_default_tools`/`tools` in
+`services/chat-bridge/openhands_client.py` once a bigger GPU (RTX 5060 Ti,
+inbound) or a better-suited model is in play. Slack (channel mentions, DMs,
+thread follow-up without re-mentioning) is fully working; GitHub App auth
+works but hasn't been exercised with real tool use yet.
 
 ## Components
 - `ollama` — serves the local Qwen model over an OpenAI-compatible API, GPU-accelerated.
@@ -42,8 +54,14 @@ Don't paste these into chat with me — edit `.env` directly.
 4. **Event Subscriptions** → enable, subscribe to bot events: `app_mention`, `message.im`, `message.channels` (and `message.groups` for private channels) -- the last two let Gary auto-continue a thread he's already in without being re-@mentioned on every reply.
 5. Invite the bot to whichever channel you want it in.
 
+**Whenever you change scopes or event subscriptions later**, Slack requires you to explicitly reinstall the app (OAuth & Permissions → reinstall banner) before the change takes effect -- saving alone does nothing, and the running installation silently keeps using the old permission set. Cost us a very confusing debugging session; don't skip it.
+
 ## Bring the stack up
 ```bash
+mkdir -p workspace secrets state
+chmod 777 workspace   # openhands runs as uid 10001; the bind mount is owned
+                      # by your host user, so without this it fails to even
+                      # start ("PermissionError: workspace/conversations")
 docker compose up -d
 docker compose exec ollama ollama pull "$(grep OLLAMA_MODEL .env | cut -d= -f2)"
 docker compose ps
@@ -56,9 +74,14 @@ curl -H "X-Session-API-Key: $(grep OPENHANDS_API_KEY .env | cut -d= -f2)" \
      localhost:8000/api/conversations                            # openhands API reachable (localhost only)
 ```
 Then:
-1. Message the bot in Slack (`@agent list the files in <repo>`) and confirm a reply.
+1. Message the bot in Slack (`@Gary who are you?`) and confirm a reply. You should see a "Got it, processing..." (or similar) ack land immediately, then the real answer after the model finishes -- current per-turn latency on the 1050 runs roughly 20-100s.
 2. Comment `@agent ...` on an issue/PR in one of `GITHUB_REPOS` and confirm a reply comment.
-3. Reply again on either surface and confirm it continues the *same* OpenHands conversation rather than starting a new one (check `state/bridge.db`).
+3. Reply again on either surface (no re-mention needed in an existing Slack thread) and confirm it continues the *same* OpenHands conversation rather than starting a new one (check `state/bridge.db`).
+
+## Behavior notes
+- **Persona**: Gary's name and SDLC-focused purpose are injected via `agent_context.system_message_suffix` in `openhands_client.py` (appends to OpenHands' default system prompt rather than replacing it, so its own tool/repo instructions stay intact).
+- **Won't respond to everything**: an explicit `@mention` or a DM always gets a response. A plain threaded reply with no mention only gets a response if `intent_gate.py` judges it's actually directed at Gary (a cheap direct call to Ollama, not routed through OpenHands) -- otherwise Gary stays quiet. Fails toward staying quiet on any error.
+- **Processing ack**: for Slack, a short acknowledgement (`app.py`'s `ACKS` list) posts immediately once Gary decides to engage, before the slow model call, so it doesn't look hung.
 
 ## GPU upgrade path (GTX 1050 → RTX 5060 Ti)
 Nothing to change except one line in `.env`:
