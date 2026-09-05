@@ -32,15 +32,20 @@ def main():
     openhands = OpenHandsClient(base_url=env("OPENHANDS_API_BASE", "http://openhands:8000"))
 
     def handle(surface: str, thread_key: str, text: str, repo: str | None = None,
-               allow_new: bool = True) -> str | None:
+               allow_new: bool = True, on_start=None) -> str | None:
         """Route an inbound message to a new-or-existing OpenHands conversation
         and return the agent's reply text, or None if nothing should happen
-        (a passive threaded reply into a thread Gary was never in)."""
+        (a passive threaded reply into a thread Gary was never in). on_start,
+        if given, fires once we've actually decided to engage -- after the
+        intent-gate check, not before -- so a message Gary ends up ignoring
+        never gets a false "processing" ack."""
         conversation_id = state.get_conversation_id(surface, thread_key)
         if conversation_id is None:
             if not allow_new:
                 return None
             log.info("New conversation for %s/%s", surface, thread_key)
+            if on_start:
+                on_start()
             conversation_id = openhands.create_conversation(initial_message=text, repo=repo)
             state.link_thread(surface, thread_key, conversation_id)
         else:
@@ -48,6 +53,8 @@ def main():
                 log.info("Passive reply on %s/%s judged not directed at Gary, staying quiet", surface, thread_key)
                 return None
             log.info("Continuing conversation %s for %s/%s", conversation_id, surface, thread_key)
+            if on_start:
+                on_start()
             openhands.send_message(conversation_id, text)
 
         return openhands.wait_for_reply(conversation_id)
@@ -60,7 +67,10 @@ def main():
     if slack_bot_token and slack_app_token and slack_signing_secret:
         def on_slack_message(thread_key: str, text: str, reply, allow_new: bool):
             try:
-                response = handle("slack", thread_key, text, allow_new=allow_new)
+                response = handle(
+                    "slack", thread_key, text, allow_new=allow_new,
+                    on_start=lambda: reply("Got it, processing..."),
+                )
                 if response is not None:
                     reply(response)
             except Exception:
