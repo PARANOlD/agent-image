@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import threading
 
 import state
@@ -19,6 +20,15 @@ from slack_listener import SlackListener
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("app")
+
+ACKS = [
+    "Got it, processing...",
+    "I hear you, checking...",
+    "I think that was for me, crunching...",
+    "On it, one sec...",
+    "Reading that now...",
+    "Noted, working on it...",
+]
 
 
 def env(name: str, default: str | None = None, required: bool = False) -> str:
@@ -69,7 +79,7 @@ def main():
             try:
                 response = handle(
                     "slack", thread_key, text, allow_new=allow_new,
-                    on_start=lambda: reply("Got it, processing..."),
+                    on_start=lambda: reply(random.choice(ACKS)),
                 )
                 if response is not None:
                     reply(response)
