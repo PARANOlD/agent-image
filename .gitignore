@@ -1,6 +1,7 @@
 .env
 secrets/
 state/*.db
+state/deploy-info.json
 state/*.db-*
 workspace/*
 !workspace/.gitkeep
