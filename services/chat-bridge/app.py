@@ -28,6 +28,12 @@ DONE_EMOJI = "white_check_mark"
 FAILED_EMOJI = "warning"
 
 
+def _snip(text: str, limit: int = 300) -> str:
+    """One-line, length-capped version of a message for logging."""
+    flat = " ".join((text or "").split())
+    return flat if len(flat) <= limit else flat[:limit] + "…"
+
+
 def env(name: str, default: str | None = None, required: bool = False) -> str:
     val = os.environ.get(name, default)
     if required and not val:
@@ -45,6 +51,11 @@ def main():
         (a passive threaded reply into a thread Gary was never in). on_start
         fires once we've actually decided to engage -- after the intent-gate
         check -- so a message Gary ignores never gets marked as in-progress."""
+        # Content lines (IN/OUT) exist so scripts/watch-gary.py can show what
+        # was actually said, not just that something happened. Truncated to
+        # keep the log readable.
+        log.info("IN %s/%s | %s", surface, thread_key, _snip(text))
+
         conversation_id = state.get_conversation_id(surface, thread_key)
         if conversation_id is None:
             if not allow_new:
@@ -63,7 +74,9 @@ def main():
                 on_start()
             openhands.send_message(conversation_id, text)
 
-        return openhands.wait_for_reply(conversation_id)
+        reply_text = openhands.wait_for_reply(conversation_id)
+        log.info("OUT %s/%s | %s", surface, thread_key, _snip(reply_text))
+        return reply_text
 
     threads = []
 
