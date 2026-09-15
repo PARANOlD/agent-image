@@ -81,7 +81,8 @@ Then:
 3. Reply again on either surface (no re-mention needed in an existing Slack thread) and confirm it continues the *same* OpenHands conversation rather than starting a new one (check `state/bridge.db`).
 
 ## Behavior notes
-- **Persona**: Gary's name and SDLC-focused purpose are injected via `agent_context.system_message_suffix` in `openhands_client.py` (appends to OpenHands' default system prompt rather than replacing it, so its own tool/repo instructions stay intact).
+- **Persona**: Gary's name, SDLC-focused purpose, concision rules and Slack formatting rules are injected via `agent_context.system_message_suffix` in `openhands_client.py` (appends to OpenHands' default system prompt rather than replacing it, so its own tool/repo instructions stay intact).
+- **Concise by default**: answers lead with the answer and stop -- no reasoning narration, no `Explanation`/`Usage` sections bolted onto code, no preamble. Ask for detail, a walkthrough, or reasoning and he expands. Asked to convert a timestamp he returns the timestamp, not a description of the conversion.
 - **Won't respond to everything**: an explicit `@mention` or a DM always gets a response. A plain threaded reply with no mention only gets a response if `intent_gate.py` judges it's actually directed at Gary (a cheap direct call to Ollama, not routed through OpenHands) -- otherwise Gary stays quiet. Fails toward staying quiet on any error.
 - **Bare replies**: no name prefix, no "processing" ack, no sign-off. Gary's own @-mention is stripped from the incoming text before the model sees it, so it can't be echoed back into the answer.
 - **Progress reactions**: instead of an ack message, Gary reacts to the triggering message with ⚙️ once he decides to engage, swapping it for ✅ when he answers (or ⚠️ if it blew up). Emoji names are constants at the top of `app.py`. Needs `reactions:write`; without it the reactions are skipped with a logged warning and everything else still works.
