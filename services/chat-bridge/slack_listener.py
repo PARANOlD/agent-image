@@ -143,7 +143,7 @@ class SlackListener:
 
         version = info.get("version") or datetime.now().strftime("%Y.%m.%d-unknown")
         model = info.get("model") or os.environ.get("OLLAMA_MODEL", "unknown")
-        lines = [f"*v{version} deployed* Model: {model}"]
+        lines = [f"*v{version} deployed.*", f"[_{model}_]"]
         lines += [f"• {change}" for change in info.get("changes", [])]
 
         try:
