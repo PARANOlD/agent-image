@@ -74,14 +74,14 @@ curl -H "X-Session-API-Key: $(grep OPENHANDS_API_KEY .env | cut -d= -f2)" \
      localhost:8000/api/conversations                            # openhands API reachable (localhost only)
 ```
 Then:
-1. Message the bot in Slack (`@Gary who are you?`) and confirm a reply. You should see a "Got it, processing..." (or similar) ack land immediately, then the real answer after the model finishes -- current per-turn latency on the 1050 runs roughly 20-100s.
+1. Message the bot in Slack (`@Gary who are you?`) and confirm a reply, prefixed with your name (`Ian: ...`) -- there's no separate "processing" message, just the final answer once the model finishes.
 2. Comment `@agent ...` on an issue/PR in one of `GITHUB_REPOS` and confirm a reply comment.
 3. Reply again on either surface (no re-mention needed in an existing Slack thread) and confirm it continues the *same* OpenHands conversation rather than starting a new one (check `state/bridge.db`).
 
 ## Behavior notes
 - **Persona**: Gary's name and SDLC-focused purpose are injected via `agent_context.system_message_suffix` in `openhands_client.py` (appends to OpenHands' default system prompt rather than replacing it, so its own tool/repo instructions stay intact).
 - **Won't respond to everything**: an explicit `@mention` or a DM always gets a response. A plain threaded reply with no mention only gets a response if `intent_gate.py` judges it's actually directed at Gary (a cheap direct call to Ollama, not routed through OpenHands) -- otherwise Gary stays quiet. Fails toward staying quiet on any error.
-- **Processing ack**: for Slack, a short acknowledgement (`app.py`'s `ACKS` list) posts immediately once Gary decides to engage, before the slow model call, so it doesn't look hung.
+- **Name-prefixed replies**: for Slack, replies are prefixed with the requester's display name (`Ian: ...`), resolved via `users.info` in `slack_listener.py` -- needs the `users:read` scope; falls back to "there" without it. No separate "processing" ack message; the reply just takes as long as it takes.
 
 ## GPU upgrade path (GTX 1050 → RTX 5060 Ti)
 Nothing to change except one line in `.env`:
