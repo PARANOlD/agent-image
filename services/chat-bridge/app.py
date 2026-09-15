@@ -66,7 +66,8 @@ def main():
             conversation_id = openhands.create_conversation(initial_message=text, repo=repo)
             state.link_thread(surface, thread_key, conversation_id)
         else:
-            if not allow_new and not is_directed_at_gary(text):
+            if not allow_new and not is_directed_at_gary(
+                    text, last_reply=openhands.last_reply(conversation_id)):
                 log.info("Passive reply on %s/%s judged not directed at Gary, staying quiet", surface, thread_key)
                 return None
             log.info("Continuing conversation %s for %s/%s", conversation_id, surface, thread_key)

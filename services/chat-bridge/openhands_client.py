@@ -152,3 +152,17 @@ class OpenHandsClient:
         )
         resp.raise_for_status()
         return resp.json().get("response") or "(no response text)"
+
+    def last_reply(self, conversation_id: str) -> str | None:
+        """Gary's most recent answer in a conversation, used as context when
+        deciding whether a bare follow-up is aimed at him. Best-effort."""
+        try:
+            resp = self.session.get(
+                f"{self.base_url}/api/conversations/{conversation_id}/agent_final_response",
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response") or None
+        except Exception:
+            log.warning("Could not fetch last reply for %s", conversation_id)
+            return None
