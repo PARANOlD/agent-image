@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+from datetime import datetime
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -99,6 +101,27 @@ class SlackListener:
 
         self.on_message(thread_key, text, reply, allow_new, user_name)
 
+    def _announce_startup(self):
+        """Posts a short status message to SLACK_STATUS_CHANNEL every time
+        chat-bridge (re)starts -- i.e. every redeploy -- so it's visible in
+        Slack when Gary comes back up with new code/config, not just in
+        docker logs. Uses the Web API directly, so it doesn't need the
+        Socket Mode connection to be up yet."""
+        channel = os.environ.get("SLACK_STATUS_CHANNEL")
+        if not channel:
+            log.info("SLACK_STATUS_CHANNEL not set, skipping startup announcement")
+            return
+        version = datetime.now().strftime("%Y.%m.%d:%H.%M")
+        model = os.environ.get("OLLAMA_MODEL", "unknown")
+        try:
+            self.app.client.chat_postMessage(
+                channel=channel,
+                text=f"Version {version} complete. Model swapped to: {model}",
+            )
+        except Exception:
+            log.exception("Failed to post startup announcement to %s", channel)
+
     def run_forever(self):
         log.info("Starting Slack Socket Mode handler")
+        self._announce_startup()
         SocketModeHandler(self.app, self.app_token).start()
