@@ -142,7 +142,8 @@ class SlackListener:
             log.exception("Could not read %s", info_path)
 
         version = info.get("version") or datetime.now().strftime("%Y.%m.%d-unknown")
-        lines = [f"*v{version} deployed*"]
+        model = info.get("model") or os.environ.get("OLLAMA_MODEL", "unknown")
+        lines = [f"*v{version} deployed* Model: {model}"]
         lines += [f"• {change}" for change in info.get("changes", [])]
 
         try:

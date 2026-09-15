@@ -33,8 +33,14 @@ fi
 
 # .env is gitignored, so a model swap never shows up in git log -- surface it
 # explicitly, since it's usually the most consequential thing about a deploy.
+# The new model is already in the announcement header, so name the old one
+# here rather than repeating it.
 if [ -n "$MODEL" ] && [ "$MODEL" != "$PREV_MODEL" ]; then
-  CHANGES+=("Model swapped to: ${MODEL}")
+  if [ -n "$PREV_MODEL" ]; then
+    CHANGES+=("Model changed (was: ${PREV_MODEL})")
+  else
+    CHANGES+=("Model set for the first time on this box")
+  fi
 fi
 
 if ! git diff --quiet HEAD 2>/dev/null; then
