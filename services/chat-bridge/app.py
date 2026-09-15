@@ -71,8 +71,7 @@ def main():
     slack_app_token = env("SLACK_APP_TOKEN")
     slack_signing_secret = env("SLACK_SIGNING_SECRET")
     if slack_bot_token and slack_app_token and slack_signing_secret:
-        def on_slack_message(thread_key: str, text: str, reply, allow_new: bool,
-                             user_name: str, react):
+        def on_slack_message(thread_key: str, text: str, reply, allow_new: bool, react):
             engaged = False
 
             def mark_working():
@@ -84,7 +83,7 @@ def main():
                 response = handle("slack", thread_key, text, allow_new=allow_new,
                                   on_start=mark_working)
                 if response is not None:
-                    reply(f"{user_name}: {response}")
+                    reply(response)
                 if engaged:
                     react(WORKING_EMOJI, remove=True)
                     react(DONE_EMOJI)

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -21,36 +22,33 @@ _DEDUP_MAX = 500  # Slack fires both app_mention and message for the same
 class SlackListener:
     def __init__(self, bot_token: str, app_token: str, signing_secret: str, on_message):
         self.app_token = app_token
-        # callback(thread_key, text, reply_fn, allow_new, user_name, react_fn)
-        # -- allow_new is False for a passive threaded reply that isn't an
-        # @mention or a DM: only continue a conversation Gary is already in,
-        # never start one. react_fn(emoji, remove=False) marks the triggering
-        # message.
+        # callback(thread_key, text, reply_fn, allow_new, react_fn) -- allow_new
+        # is False for a passive threaded reply that isn't an @mention or a DM:
+        # only continue a conversation Gary is already in, never start one.
+        # react_fn(emoji, remove=False) marks the triggering message.
         self.on_message = on_message
         self.app = App(token=bot_token, signing_secret=signing_secret)
         self._seen_lock = threading.Lock()
         self._seen: list[tuple[str, str]] = []
-        self._name_cache: dict[str, str] = {}
+        self._bot_user_id = self._resolve_bot_user_id()
         self._register_handlers()
 
-    def _display_name(self, user_id: str) -> str:
-        """Resolve a Slack user ID to a display name (users:read scope).
-        Falls back to a generic greeting if the lookup fails or the scope
-        isn't granted -- this is cosmetic, never worth failing a reply over.
-        """
-        if not user_id:
-            return "there"
-        if user_id in self._name_cache:
-            return self._name_cache[user_id]
+    def _resolve_bot_user_id(self) -> str | None:
+        """Our own Slack user ID, so we can strip "<@U123>" out of incoming
+        text. Left in, the model sees raw mention markup and parrots it back
+        into its answer. auth.test needs no special scope."""
         try:
-            info = self.app.client.users_info(user=user_id)["user"]
-            profile = info.get("profile", {})
-            name = profile.get("display_name") or info.get("real_name") or info.get("name") or "there"
+            return self.app.client.auth_test()["user_id"]
         except Exception:
-            log.exception("Failed to resolve display name for %s", user_id)
-            name = "there"
-        self._name_cache[user_id] = name
-        return name
+            log.exception("Could not resolve bot user id; mentions won't be stripped")
+            return None
+
+    def _clean(self, text: str) -> str:
+        """Strip the mention of Gary himself. Other people's mentions stay --
+        they may be part of what's being asked about."""
+        if self._bot_user_id:
+            text = re.sub(rf"<@{re.escape(self._bot_user_id)}>", "", text)
+        return text.strip()
 
     def _already_handled(self, channel: str, ts: str) -> bool:
         key = (channel, ts)
@@ -96,8 +94,7 @@ class SlackListener:
         channel = event["channel"]
         thread_ts = event.get("thread_ts") or event["ts"]
         thread_key = f"{channel}:{thread_ts}"
-        text = event.get("text", "")
-        user_name = self._display_name(event.get("user"))
+        text = self._clean(event.get("text", ""))
         # Reactions go on the message that triggered us, not the thread root.
         message_ts = event["ts"]
 
@@ -114,7 +111,7 @@ class SlackListener:
             except Exception as exc:
                 log.warning("reaction %s%s failed: %s", "-" if remove else "+", emoji, exc)
 
-        self.on_message(thread_key, text, reply, allow_new, user_name, react)
+        self.on_message(thread_key, text, reply, allow_new, react)
 
     def _announce_startup(self):
         """Posts a deploy note to SLACK_STATUS_CHANNEL every time chat-bridge

@@ -38,7 +38,11 @@ PERSONA = (
     "Slack: always put code, commands, file contents, and terminal output in "
     "fenced code blocks (triple backticks), optionally with a language tag "
     "e.g. ```python, and use inline single-backtick formatting for short "
-    "code references like function or variable names within a sentence."
+    "code references like function or variable names within a sentence. "
+    "Do not sign your messages or add your name at the end -- Slack already "
+    "shows who is speaking. Do not end with an offer of further help such as "
+    "\"let me know if you need anything else\"; stop once you have answered. "
+    "Do not repeat or echo the user's @-mention back to them."
 )
 
 

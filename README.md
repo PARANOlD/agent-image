@@ -7,16 +7,18 @@ from either surface. Containerized, versioned, and mirrorable to Azure
 Container Registry for delivery to other machines. See [OFFERING.md](OFFERING.md)
 for the longer-term vision and phased roadmap this fits into.
 
-## Current status (2026-09-05)
-**Chat-only.** No tools (`terminal`/`file_editor`/`task_tracker`) are attached
-to conversations right now — every model tested on the current GTX 1050
-(qwen2.5-coder 1.5b/3b, qwen3:1.7b) failed to reliably emit real tool calls
-through Ollama. Gary can hold a conversation, but can't yet read files, run
-commands, or open PRs. Revisit `include_default_tools`/`tools` in
-`services/chat-bridge/openhands_client.py` once a bigger GPU (RTX 5060 Ti,
-inbound) or a better-suited model is in play. Slack (channel mentions, DMs,
-thread follow-up without re-mentioning) is fully working; GitHub App auth
-works but hasn't been exercised with real tool use yet.
+## Current status (2026-09-15)
+Running `qwen2.5-coder:14b-instruct-q4_K_M` on an RTX 5060 Ti (16GB), ~13GB
+VRAM, ~18s per coding answer. Slack (channel mentions, DMs, thread follow-up
+without re-mentioning) is fully working; GitHub App auth works but hasn't
+been exercised with real tool use yet.
+
+**Still chat-only.** No tools (`terminal`/`file_editor`/`task_tracker`) are
+attached to conversations — none of the small models tested on the old GTX
+1050 (qwen2.5-coder 1.5b/3b, qwen3:1.7b) would reliably emit real tool calls
+through Ollama, confirmed at the Ollama API level. The 14B has the headroom
+to be retested; that's the gate on turning tools back on in
+`services/chat-bridge/openhands_client.py`.
 
 ## Components
 - `ollama` — serves the local Qwen model over an OpenAI-compatible API, GPU-accelerated.
@@ -50,7 +52,7 @@ Don't paste these into chat with me — edit `.env` directly.
 ### Creating the Slack app
 1. https://api.slack.com/apps → **Create New App** → From scratch.
 2. **Socket Mode** → enable it → generate an app-level token with the `connections:write` scope → this is `SLACK_APP_TOKEN` (`xapp-...`).
-3. **OAuth & Permissions** → Bot Token Scopes: `app_mentions:read`, `chat:write`, `im:history`, `channels:history`, `users:read` (address people by name), `reactions:write` (mark messages he's working on). Install to workspace → this is `SLACK_BOT_TOKEN` (`xoxb-...`).
+3. **OAuth & Permissions** → Bot Token Scopes: `app_mentions:read`, `chat:write`, `im:history`, `channels:history`, `reactions:write` (mark messages he's working on). Install to workspace → this is `SLACK_BOT_TOKEN` (`xoxb-...`).
 4. **Event Subscriptions** → enable, subscribe to bot events: `app_mention`, `message.im`, `message.channels` (and `message.groups` for private channels) -- the last two let Gary auto-continue a thread he's already in without being re-@mentioned on every reply.
 5. Invite the bot to whichever channel you want it in.
 
@@ -74,22 +76,30 @@ curl -H "X-Session-API-Key: $(grep OPENHANDS_API_KEY .env | cut -d= -f2)" \
      localhost:8000/api/conversations                            # openhands API reachable (localhost only)
 ```
 Then:
-1. Message the bot in Slack (`@Gary who are you?`) and confirm a reply, prefixed with your name (`Ian: ...`) -- there's no separate "processing" message, just the final answer once the model finishes.
+1. Message the bot in Slack (`@Gary who are you?`) and confirm a reply. There's no "processing" message -- just a ⚙️ reaction on your message while he works, then the answer.
 2. Comment `@agent ...` on an issue/PR in one of `GITHUB_REPOS` and confirm a reply comment.
 3. Reply again on either surface (no re-mention needed in an existing Slack thread) and confirm it continues the *same* OpenHands conversation rather than starting a new one (check `state/bridge.db`).
 
 ## Behavior notes
 - **Persona**: Gary's name and SDLC-focused purpose are injected via `agent_context.system_message_suffix` in `openhands_client.py` (appends to OpenHands' default system prompt rather than replacing it, so its own tool/repo instructions stay intact).
 - **Won't respond to everything**: an explicit `@mention` or a DM always gets a response. A plain threaded reply with no mention only gets a response if `intent_gate.py` judges it's actually directed at Gary (a cheap direct call to Ollama, not routed through OpenHands) -- otherwise Gary stays quiet. Fails toward staying quiet on any error.
-- **Name-prefixed replies**: for Slack, replies are prefixed with the requester's display name (`Ian: ...`), resolved via `users.info` in `slack_listener.py` -- needs the `users:read` scope; falls back to "there" without it. No separate "processing" ack message; the reply just takes as long as it takes.
+- **Bare replies**: no name prefix, no "processing" ack, no sign-off. Gary's own @-mention is stripped from the incoming text before the model sees it, so it can't be echoed back into the answer.
 - **Progress reactions**: instead of an ack message, Gary reacts to the triggering message with ⚙️ once he decides to engage, swapping it for ✅ when he answers (or ⚠️ if it blew up). Emoji names are constants at the top of `app.py`. Needs `reactions:write`; without it the reactions are skipped with a logged warning and everything else still works.
 
-## GPU upgrade path (GTX 1050 → RTX 5060 Ti)
-Nothing to change except one line in `.env`:
+## Changing models
+One line in `.env`, then re-pull and restart:
+```bash
+OLLAMA_MODEL=qwen2.5-coder:14b-instruct-q4_K_M   # 9GB weights, ~13GB loaded at 24k ctx
 ```
-OLLAMA_MODEL=qwen2.5-coder:14b        # or a larger/quantized variant that fits 16GB
+```bash
+docker compose exec ollama ollama pull "$(grep OLLAMA_MODEL .env | cut -d= -f2)"
+./scripts/restart-gary.sh
 ```
-Re-pull the model (`docker compose exec ollama ollama pull ...`) and restart `openhands`.
+Mind the VRAM math: Ollama sizes the KV cache as `context_length × num_parallel`,
+so the loaded footprint is well above the weights. A 14B at 24k context needs
+~13GB at one request slot and ~20GB at two -- and if it doesn't fit, Ollama
+silently runs it at 100% CPU instead of erroring. `OLLAMA_NUM_PARALLEL` is
+pinned to 1 for that reason, and `restart-gary.sh` verifies GPU placement.
 
 ## Shipping to another machine via ACR
 ```bash
