@@ -22,12 +22,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 log = logging.getLogger("app")
 
 ACKS = [
-    "Got it, processing...",
-    "I hear you, checking...",
-    "I think that was for me, crunching...",
-    "On it, one sec...",
-    "Reading that now...",
-    "Noted, working on it...",
+    "Got it, {name} -- processing...",
+    "I hear you, {name} -- checking...",
+    "I think that was for me, {name} -- crunching...",
+    "On it, {name} -- one sec...",
+    "Reading that now, {name}...",
+    "Noted, {name} -- working on it...",
 ]
 
 
@@ -75,11 +75,11 @@ def main():
     slack_app_token = env("SLACK_APP_TOKEN")
     slack_signing_secret = env("SLACK_SIGNING_SECRET")
     if slack_bot_token and slack_app_token and slack_signing_secret:
-        def on_slack_message(thread_key: str, text: str, reply, allow_new: bool):
+        def on_slack_message(thread_key: str, text: str, reply, allow_new: bool, user_name: str):
             try:
                 response = handle(
                     "slack", thread_key, text, allow_new=allow_new,
-                    on_start=lambda: reply(random.choice(ACKS)),
+                    on_start=lambda: reply(random.choice(ACKS).format(name=user_name)),
                 )
                 if response is not None:
                     reply(response)
