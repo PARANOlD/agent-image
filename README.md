@@ -50,7 +50,7 @@ Don't paste these into chat with me — edit `.env` directly.
 ### Creating the Slack app
 1. https://api.slack.com/apps → **Create New App** → From scratch.
 2. **Socket Mode** → enable it → generate an app-level token with the `connections:write` scope → this is `SLACK_APP_TOKEN` (`xapp-...`).
-3. **OAuth & Permissions** → Bot Token Scopes: `app_mentions:read`, `chat:write`, `im:history`, `channels:history`, `users:read` (lets Gary greet people by name in his ack message). Install to workspace → this is `SLACK_BOT_TOKEN` (`xoxb-...`).
+3. **OAuth & Permissions** → Bot Token Scopes: `app_mentions:read`, `chat:write`, `im:history`, `channels:history`, `users:read` (address people by name), `reactions:write` (mark messages he's working on). Install to workspace → this is `SLACK_BOT_TOKEN` (`xoxb-...`).
 4. **Event Subscriptions** → enable, subscribe to bot events: `app_mention`, `message.im`, `message.channels` (and `message.groups` for private channels) -- the last two let Gary auto-continue a thread he's already in without being re-@mentioned on every reply.
 5. Invite the bot to whichever channel you want it in.
 
@@ -82,6 +82,7 @@ Then:
 - **Persona**: Gary's name and SDLC-focused purpose are injected via `agent_context.system_message_suffix` in `openhands_client.py` (appends to OpenHands' default system prompt rather than replacing it, so its own tool/repo instructions stay intact).
 - **Won't respond to everything**: an explicit `@mention` or a DM always gets a response. A plain threaded reply with no mention only gets a response if `intent_gate.py` judges it's actually directed at Gary (a cheap direct call to Ollama, not routed through OpenHands) -- otherwise Gary stays quiet. Fails toward staying quiet on any error.
 - **Name-prefixed replies**: for Slack, replies are prefixed with the requester's display name (`Ian: ...`), resolved via `users.info` in `slack_listener.py` -- needs the `users:read` scope; falls back to "there" without it. No separate "processing" ack message; the reply just takes as long as it takes.
+- **Progress reactions**: instead of an ack message, Gary reacts to the triggering message with ⚙️ once he decides to engage, swapping it for ✅ when he answers (or ⚠️ if it blew up). Emoji names are constants at the top of `app.py`. Needs `reactions:write`; without it the reactions are skipped with a logged warning and everything else still works.
 
 ## GPU upgrade path (GTX 1050 → RTX 5060 Ti)
 Nothing to change except one line in `.env`:

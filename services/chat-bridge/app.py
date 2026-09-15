@@ -20,6 +20,13 @@ from slack_listener import SlackListener
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("app")
 
+# Slack emoji names (no colons) used to mark a message Gary is working on.
+# WORKING goes on as soon as he decides to engage and comes off when he
+# answers, so a thread shows at a glance what he's still chewing on.
+WORKING_EMOJI = "gear"
+DONE_EMOJI = "white_check_mark"
+FAILED_EMOJI = "warning"
+
 
 def env(name: str, default: str | None = None, required: bool = False) -> str:
     val = os.environ.get(name, default)
@@ -32,15 +39,19 @@ def main():
     openhands = OpenHandsClient(base_url=env("OPENHANDS_API_BASE", "http://openhands:8000"))
 
     def handle(surface: str, thread_key: str, text: str, repo: str | None = None,
-               allow_new: bool = True) -> str | None:
+               allow_new: bool = True, on_start=None) -> str | None:
         """Route an inbound message to a new-or-existing OpenHands conversation
         and return the agent's reply text, or None if nothing should happen
-        (a passive threaded reply into a thread Gary was never in)."""
+        (a passive threaded reply into a thread Gary was never in). on_start
+        fires once we've actually decided to engage -- after the intent-gate
+        check -- so a message Gary ignores never gets marked as in-progress."""
         conversation_id = state.get_conversation_id(surface, thread_key)
         if conversation_id is None:
             if not allow_new:
                 return None
             log.info("New conversation for %s/%s", surface, thread_key)
+            if on_start:
+                on_start()
             conversation_id = openhands.create_conversation(initial_message=text, repo=repo)
             state.link_thread(surface, thread_key, conversation_id)
         else:
@@ -48,6 +59,8 @@ def main():
                 log.info("Passive reply on %s/%s judged not directed at Gary, staying quiet", surface, thread_key)
                 return None
             log.info("Continuing conversation %s for %s/%s", conversation_id, surface, thread_key)
+            if on_start:
+                on_start()
             openhands.send_message(conversation_id, text)
 
         return openhands.wait_for_reply(conversation_id)
@@ -58,13 +71,28 @@ def main():
     slack_app_token = env("SLACK_APP_TOKEN")
     slack_signing_secret = env("SLACK_SIGNING_SECRET")
     if slack_bot_token and slack_app_token and slack_signing_secret:
-        def on_slack_message(thread_key: str, text: str, reply, allow_new: bool, user_name: str):
+        def on_slack_message(thread_key: str, text: str, reply, allow_new: bool,
+                             user_name: str, react):
+            engaged = False
+
+            def mark_working():
+                nonlocal engaged
+                engaged = True
+                react(WORKING_EMOJI)
+
             try:
-                response = handle("slack", thread_key, text, allow_new=allow_new)
+                response = handle("slack", thread_key, text, allow_new=allow_new,
+                                  on_start=mark_working)
                 if response is not None:
                     reply(f"{user_name}: {response}")
+                if engaged:
+                    react(WORKING_EMOJI, remove=True)
+                    react(DONE_EMOJI)
             except Exception:
                 log.exception("Failed handling Slack message on %s", thread_key)
+                if engaged:
+                    react(WORKING_EMOJI, remove=True)
+                    react(FAILED_EMOJI)
                 reply("Something went wrong handling that -- check chat-bridge logs.")
 
         slack = SlackListener(slack_bot_token, slack_app_token, slack_signing_secret, on_slack_message)

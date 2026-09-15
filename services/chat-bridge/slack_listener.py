@@ -19,10 +19,11 @@ _DEDUP_MAX = 500  # Slack fires both app_mention and message for the same
 class SlackListener:
     def __init__(self, bot_token: str, app_token: str, signing_secret: str, on_message):
         self.app_token = app_token
-        # callback(thread_key, text, reply_fn, allow_new: bool, user_name: str)
+        # callback(thread_key, text, reply_fn, allow_new, user_name, react_fn)
         # -- allow_new is False for a passive threaded reply that isn't an
         # @mention or a DM: only continue a conversation Gary is already in,
-        # never start one.
+        # never start one. react_fn(emoji, remove=False) marks the triggering
+        # message.
         self.on_message = on_message
         self.app = App(token=bot_token, signing_secret=signing_secret)
         self._seen_lock = threading.Lock()
@@ -95,11 +96,23 @@ class SlackListener:
         thread_key = f"{channel}:{thread_ts}"
         text = event.get("text", "")
         user_name = self._display_name(event.get("user"))
+        # Reactions go on the message that triggered us, not the thread root.
+        message_ts = event["ts"]
 
         def reply(message: str):
             say(text=message, thread_ts=thread_ts, channel=channel)
 
-        self.on_message(thread_key, text, reply, allow_new, user_name)
+        def react(emoji: str, remove: bool = False):
+            """Add/remove a reaction on the triggering message. Needs the
+            reactions:write scope; failures are logged and swallowed since a
+            missing reaction should never cost us the actual reply."""
+            try:
+                fn = self.app.client.reactions_remove if remove else self.app.client.reactions_add
+                fn(channel=channel, timestamp=message_ts, name=emoji)
+            except Exception as exc:
+                log.warning("reaction %s%s failed: %s", "-" if remove else "+", emoji, exc)
+
+        self.on_message(thread_key, text, reply, allow_new, user_name, react)
 
     def _announce_startup(self):
         """Posts a short status message to SLACK_STATUS_CHANNEL every time
