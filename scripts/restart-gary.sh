@@ -35,6 +35,10 @@ if ! nvidia-smi --query-gpu=name,memory.used,memory.total,driver_version --forma
 fi
 
 echo
+echo "== Recording deploy info (drives Gary's Slack announcement) =="
+./scripts/write-deploy-info.sh
+
+echo
 echo "== Starting stack =="
 docker compose up -d
 

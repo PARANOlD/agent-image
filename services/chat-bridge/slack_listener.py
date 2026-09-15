@@ -1,10 +1,12 @@
 """Slack side of the bridge, via Socket Mode (no inbound public URL needed)."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 from datetime import datetime
+from pathlib import Path
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -115,22 +117,36 @@ class SlackListener:
         self.on_message(thread_key, text, reply, allow_new, user_name, react)
 
     def _announce_startup(self):
-        """Posts a short status message to SLACK_STATUS_CHANNEL every time
-        chat-bridge (re)starts -- i.e. every redeploy -- so it's visible in
-        Slack when Gary comes back up with new code/config, not just in
-        docker logs. Uses the Web API directly, so it doesn't need the
-        Socket Mode connection to be up yet."""
+        """Posts a deploy note to SLACK_STATUS_CHANNEL every time chat-bridge
+        (re)starts -- i.e. every redeploy -- so it's visible in Slack when
+        Gary comes back up with new code/config, not just in docker logs.
+        Uses the Web API directly, so it doesn't need the Socket Mode
+        connection to be up yet.
+
+        Version and change list come from state/deploy-info.json, written by
+        scripts/write-deploy-info.sh at deploy time (the container has no git
+        repo of its own to read). Falls back to a bare timestamp if that file
+        is missing, e.g. someone ran `docker compose up` by hand."""
         channel = os.environ.get("SLACK_STATUS_CHANNEL")
         if not channel:
             log.info("SLACK_STATUS_CHANNEL not set, skipping startup announcement")
             return
-        version = datetime.now().strftime("%Y.%m.%d:%H.%M")
-        model = os.environ.get("OLLAMA_MODEL", "unknown")
+
+        info = {}
+        info_path = Path(os.environ.get("STATE_DIR", "/app/state")) / "deploy-info.json"
         try:
-            self.app.client.chat_postMessage(
-                channel=channel,
-                text=f"Version {version} complete. Model swapped to: {model}",
-            )
+            info = json.loads(info_path.read_text())
+        except FileNotFoundError:
+            log.info("No deploy-info.json; announcing without a change list")
+        except Exception:
+            log.exception("Could not read %s", info_path)
+
+        version = info.get("version") or datetime.now().strftime("%Y.%m.%d-unknown")
+        lines = [f"*v{version} deployed*"]
+        lines += [f"• {change}" for change in info.get("changes", [])]
+
+        try:
+            self.app.client.chat_postMessage(channel=channel, text="\n".join(lines))
         except Exception:
             log.exception("Failed to post startup announcement to %s", channel)
 
