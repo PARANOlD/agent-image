@@ -19,6 +19,13 @@ services:
     environment:
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_CONTEXT_LENGTH=${OLLAMA_CONTEXT_LENGTH:-24576}
+      # Pin to a single request slot. Ollama sizes the KV cache as
+      # context_length * num_parallel, and picks num_parallel dynamically --
+      # at 2 slots a 14B model at 24576 context needs ~20GB, overflows a 16GB
+      # card, and silently falls back to 100% CPU (multi-minute responses, no
+      # error). One slot keeps it ~13GB and safely on the GPU. Gary handles
+      # one conversation at a time anyway.
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
     deploy:
       resources:
         reservations:
