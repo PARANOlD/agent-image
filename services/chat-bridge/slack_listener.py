@@ -14,6 +14,8 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 log = logging.getLogger("slack_listener")
 
+_MARKDOWN_BLOCK_LIMIT = 11000  # Slack caps a markdown block at 12k; leave room.
+
 _DEDUP_MAX = 500  # Slack fires both app_mention and message for the same
                    # mention-in-channel event -- track recently seen (channel,
                    # ts) pairs so we don't dispatch it twice.
@@ -99,6 +101,24 @@ class SlackListener:
         message_ts = event["ts"]
 
         def reply(message: str):
+            """Post as a Block Kit markdown block rather than mrkdwn text.
+
+            Two reasons: Slack syntax-highlights fenced code blocks with a
+            language tag here (mrkdwn silently drops the tag), and these
+            blocks take standard markdown, which is what an LLM emits --
+            under mrkdwn, "**bold**" rendered as literal asterisks.
+
+            Falls back to plain text if the block is rejected or the message
+            is too long for one block, so a reply is never lost to
+            formatting."""
+            if len(message) <= _MARKDOWN_BLOCK_LIMIT:
+                try:
+                    say(blocks=[{"type": "markdown", "text": message}],
+                        text=message[:300], thread_ts=thread_ts, channel=channel)
+                    return
+                except Exception:
+                    log.warning("markdown block rejected, falling back to plain text",
+                                exc_info=True)
             say(text=message, thread_ts=thread_ts, channel=channel)
 
         def react(emoji: str, remove: bool = False):
