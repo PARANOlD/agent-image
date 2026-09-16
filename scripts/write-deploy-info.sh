@@ -11,7 +11,9 @@ cd "$(dirname "$0")/.."
 
 INFO=state/deploy-info.json
 SHA=$(git rev-parse --short HEAD)
-VERSION="$(date +%Y.%m.%d)-${SHA}"
+# Human-readable timestamp, e.g. 2026.09.16-13.03 -- the commit SHA is kept
+# separately (below) for the change-diffing logic, not for display.
+VERSION="$(date +%Y.%m.%d-%H.%M)"
 MODEL=$(grep '^OLLAMA_MODEL=' .env | cut -d= -f2-)
 
 PREV_SHA=""
