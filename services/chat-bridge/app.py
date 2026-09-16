@@ -11,6 +11,7 @@ import os
 import threading
 
 import state
+from github_actions import find_pr_reference, format_pr_status, get_pr
 from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
 from intent_gate import is_directed_at_gary
@@ -43,6 +44,20 @@ def env(name: str, default: str | None = None, required: bool = False) -> str:
 
 def main():
     openhands = OpenHandsClient(base_url=env("OPENHANDS_API_BASE", "http://openhands:8000"))
+
+    # Built once, shared by the deterministic PR lookup (Slack) and the
+    # poller (GitHub) below -- both need the same App credentials.
+    github_app_id = env("GITHUB_APP_ID")
+    github_private_key_path = env("GITHUB_APP_PRIVATE_KEY_PATH")
+    github_installation_id = env("GITHUB_APP_INSTALLATION_ID")
+    github_repos = [r.strip() for r in env("GITHUB_REPOS").split(",") if r.strip()]
+    github_auth = None
+    if github_app_id and github_private_key_path and github_installation_id:
+        github_auth = GitHubAppAuth(
+            app_id=github_app_id,
+            private_key_path=github_private_key_path,
+            installation_id=github_installation_id,
+        )
 
     def handle(surface: str, thread_key: str, text: str, repo: str | None = None,
                allow_new: bool = True, on_start=None) -> str | None:
@@ -86,6 +101,29 @@ def main():
     slack_signing_secret = env("SLACK_SIGNING_SECRET")
     if slack_bot_token and slack_app_token and slack_signing_secret:
         def on_slack_message(thread_key: str, text: str, reply, allow_new: bool, react):
+            # PR questions are answered deterministically -- a direct GitHub
+            # API call, never routed through OpenHands/the model. See
+            # github_actions.py for why: the model has repeatedly fabricated
+            # fake tool calls for exactly this kind of question instead of
+            # making a real one.
+            #
+            # Only for allow_new (an explicit @mention or a DM) -- a passive
+            # thread reply that merely mentions "PR #5" in conversation isn't
+            # necessarily addressed to Gary, and this shortcut bypasses the
+            # intent gate, so it must not run for those.
+            if github_auth and allow_new:
+                default_repo = github_repos[0] if len(github_repos) == 1 else None
+                ref = find_pr_reference(text, default_repo)
+                if ref:
+                    react(WORKING_EMOJI)
+                    repo, number = ref
+                    log.info("PR lookup: %s#%d (requested by %s/%s)", repo, number, "slack", thread_key)
+                    data = get_pr(github_auth, repo, number)
+                    reply(format_pr_status(repo, number, data))
+                    react(WORKING_EMOJI, remove=True)
+                    react(DONE_EMOJI if data is not None else FAILED_EMOJI)
+                    return
+
             engaged = False
 
             def mark_working():
@@ -113,11 +151,7 @@ def main():
     else:
         log.warning("SLACK_BOT_TOKEN/SLACK_APP_TOKEN/SLACK_SIGNING_SECRET not fully set -- Slack listener disabled")
 
-    github_app_id = env("GITHUB_APP_ID")
-    github_private_key_path = env("GITHUB_APP_PRIVATE_KEY_PATH")
-    github_installation_id = env("GITHUB_APP_INSTALLATION_ID")
-    github_repos = [r.strip() for r in env("GITHUB_REPOS").split(",") if r.strip()]
-    if github_app_id and github_private_key_path and github_installation_id and github_repos:
+    if github_auth and github_repos:
         def on_github_mention(thread_key: str, repo: str, issue_number: str, body: str, url: str):
             try:
                 reply = handle("github", thread_key, body, repo=repo)
@@ -125,13 +159,8 @@ def main():
             except Exception:
                 log.exception("Failed handling GitHub mention on %s", thread_key)
 
-        auth = GitHubAppAuth(
-            app_id=github_app_id,
-            private_key_path=github_private_key_path,
-            installation_id=github_installation_id,
-        )
         poller = GitHubPoller(
-            auth=auth,
+            auth=github_auth,
             repos=github_repos,
             trigger=env("GITHUB_TRIGGER", "@agent"),
             interval=int(env("GITHUB_POLL_INTERVAL", "30")),
