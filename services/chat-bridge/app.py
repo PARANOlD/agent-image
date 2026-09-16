@@ -14,6 +14,7 @@ import state
 from github_actions import format_pr_list, format_pr_status, get_pr, list_prs
 from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
+from github_pr_creator import PrCreationError, VALID_BRANCH_TYPES, create_branch_and_pr
 from intent_gate import is_directed_at_gary
 from llm_router import route as route_command
 from openhands_client import OpenHandsClient
@@ -30,6 +31,10 @@ PR_COMMANDS = {
     "pr_list": {
         "description": "a list of open pull requests",
         "params": "none",
+    },
+    "create_pr": {
+        "description": "cut a branch and open a pull request for a described code/file change",
+        "params": "branch_type: one of feature, bugfix, hotfix (default feature if unclear)",
     },
 }
 
@@ -147,6 +152,33 @@ def main():
                     reply(format_pr_list(repo, prs))
                     react(WORKING_EMOJI, remove=True)
                     react(DONE_EMOJI if prs is not None else FAILED_EMOJI)
+                    return
+
+                if routed["command"] == "create_pr":
+                    branch_type = routed["params"].get("branch_type")
+                    if branch_type not in VALID_BRANCH_TYPES:
+                        branch_type = "feature"
+                    react(WORKING_EMOJI)
+                    log.info("PR creation requested: %s/%s (from %s/%s)", branch_type, repo, "slack", thread_key)
+                    try:
+                        result = create_branch_and_pr(github_auth, repo, branch_type, text)
+                        message = f"Opened `{result['branch']}` → `main`: {result['pr_url']}"
+                        reply(message)
+                        react(WORKING_EMOJI, remove=True)
+                        react(DONE_EMOJI)
+                        status_channel = env("SLACK_STATUS_CHANNEL")
+                        requesting_channel = thread_key.split(":", 1)[0]
+                        if status_channel and status_channel != requesting_channel:
+                            slack.post_to_channel(status_channel, f"*New PR opened by Gary*\n{message}")
+                    except PrCreationError as exc:
+                        reply(str(exc))
+                        react(WORKING_EMOJI, remove=True)
+                        react(FAILED_EMOJI)
+                    except Exception:
+                        log.exception("PR creation failed unexpectedly for %s/%s", "slack", thread_key)
+                        reply("Something went wrong opening that PR -- check chat-bridge logs.")
+                        react(WORKING_EMOJI, remove=True)
+                        react(FAILED_EMOJI)
                     return
 
             engaged = False

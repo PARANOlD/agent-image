@@ -133,6 +133,26 @@ class SlackListener:
 
         self.on_message(thread_key, text, reply, allow_new, react)
 
+    def post_to_channel(self, channel: str, message: str) -> None:
+        """Post to an arbitrary channel, independent of any triggering
+        event -- used for the #gary PR-opened alert, which fires regardless
+        of which channel/thread actually asked Gary to open the PR. Same
+        markdown-block-with-plain-text-fallback behavior as reply()."""
+        if not channel:
+            return
+        try:
+            if len(message) <= _MARKDOWN_BLOCK_LIMIT:
+                self.app.client.chat_postMessage(
+                    channel=channel, blocks=[{"type": "markdown", "text": message}], text=message[:300])
+                return
+        except Exception:
+            log.warning("markdown block rejected posting to %s, falling back to plain text", channel,
+                        exc_info=True)
+        try:
+            self.app.client.chat_postMessage(channel=channel, text=message)
+        except Exception:
+            log.exception("Failed to post to channel %s", channel)
+
     def _announce_startup(self):
         """Posts a deploy note to SLACK_STATUS_CHANNEL every time chat-bridge
         (re)starts -- i.e. every redeploy -- so it's visible in Slack when
