@@ -23,6 +23,12 @@ az acr login --name "$ACR_NAME"
 echo "== Building chat-bridge =="
 docker compose build chat-bridge
 
+echo "== Running unit tests (fast, no live model needed) =="
+./scripts/run-tests.sh
+echo "   (skipped: integration tests, which need a live Ollama on the target"
+echo "   model -- run './scripts/run-tests.sh --run-integration' yourself if"
+echo "   you want classifier behavior checked before shipping too)"
+
 mirror() {
   local src="$1" name="$2"
   local dst="${REGISTRY}/${name}:${TAG}"

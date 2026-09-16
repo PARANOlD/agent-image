@@ -11,19 +11,27 @@ import os
 import threading
 
 import state
-from github_actions import (
-    find_pr_list_request,
-    find_pr_reference,
-    format_pr_list,
-    format_pr_status,
-    get_pr,
-    list_prs,
-)
+from github_actions import format_pr_list, format_pr_status, get_pr, list_prs
 from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
 from intent_gate import is_directed_at_gary
+from llm_router import route as route_command
 from openhands_client import OpenHandsClient
 from slack_listener import SlackListener
+
+# Registry for llm_router.route() -- the model's only job is picking one of
+# these (or "none") and extracting params; execution is 100% the plain
+# Python functions above. Add future deterministic tools here.
+PR_COMMANDS = {
+    "pr_status": {
+        "description": "the status/details of one specific pull request",
+        "params": "number (integer, the PR number)",
+    },
+    "pr_list": {
+        "description": "a list of open pull requests",
+        "params": "none",
+    },
+}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("app")
@@ -108,22 +116,23 @@ def main():
     slack_signing_secret = env("SLACK_SIGNING_SECRET")
     if slack_bot_token and slack_app_token and slack_signing_secret:
         def on_slack_message(thread_key: str, text: str, reply, allow_new: bool, react):
-            # PR questions are answered deterministically -- a direct GitHub
-            # API call, never routed through OpenHands/the model. See
-            # github_actions.py for why: the model has repeatedly fabricated
-            # fake tool calls for exactly this kind of question instead of
-            # making a real one.
+            # PR questions are recognized by an LLM router (natural language
+            # in, one of PR_COMMANDS out -- see llm_router.py) but *answered*
+            # deterministically: a direct GitHub API call, never routed
+            # through OpenHands. The model's job stops at classification; it
+            # never gets a chance to fabricate a call or a result.
             #
             # Only for allow_new (an explicit @mention or a DM) -- a passive
-            # thread reply that merely mentions "PR #5" in conversation isn't
+            # thread reply that merely mentions a PR in conversation isn't
             # necessarily addressed to Gary, and this shortcut bypasses the
             # intent gate, so it must not run for those.
-            if github_auth and allow_new:
-                default_repo = github_repos[0] if len(github_repos) == 1 else None
-                ref = find_pr_reference(text, default_repo)
-                if ref:
+            if github_auth and allow_new and len(github_repos) == 1:
+                repo = github_repos[0]
+                routed = route_command(text, PR_COMMANDS)
+
+                if routed["command"] == "pr_status" and isinstance(routed["params"].get("number"), int):
+                    number = routed["params"]["number"]
                     react(WORKING_EMOJI)
-                    repo, number = ref
                     log.info("PR lookup: %s#%d (requested by %s/%s)", repo, number, "slack", thread_key)
                     data = get_pr(github_auth, repo, number)
                     reply(format_pr_status(repo, number, data))
@@ -131,12 +140,11 @@ def main():
                     react(DONE_EMOJI if data is not None else FAILED_EMOJI)
                     return
 
-                list_repo = find_pr_list_request(text, default_repo)
-                if list_repo:
+                if routed["command"] == "pr_list":
                     react(WORKING_EMOJI)
-                    log.info("PR list: %s (requested by %s/%s)", list_repo, "slack", thread_key)
-                    prs = list_prs(github_auth, list_repo)
-                    reply(format_pr_list(list_repo, prs))
+                    log.info("PR list: %s (requested by %s/%s)", repo, "slack", thread_key)
+                    prs = list_prs(github_auth, repo)
+                    reply(format_pr_list(repo, prs))
                     react(WORKING_EMOJI, remove=True)
                     react(DONE_EMOJI if prs is not None else FAILED_EMOJI)
                     return

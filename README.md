@@ -87,6 +87,14 @@ Then:
 - **Bare replies**: no name prefix, no "processing" ack, no sign-off. Gary's own @-mention is stripped from the incoming text before the model sees it, so it can't be echoed back into the answer.
 - **Replies use Block Kit `markdown` blocks**, not mrkdwn text. Slack syntax-highlights fenced code blocks with a language tag there (mrkdwn silently drops the tag), and these blocks take standard markdown -- so `**bold**` from the model renders correctly instead of showing literal asterisks. Falls back to plain text if a block is rejected or exceeds the ~12k block limit. Highlighting is partial: Slack owns the grammar and palette, so keyword/type colouring is whatever their renderer does.
 - **Progress reactions**: instead of an ack message, Gary reacts to the triggering message with ⚙️ once he decides to engage, swapping it for ✅ when he answers (or ⚠️ if it blew up). Emoji names are constants at the top of `app.py`. Needs `reactions:write`; without it the reactions are skipped with a logged warning and everything else still works.
+- **Deterministic tools, LLM-routed**: concrete actions (currently: PR status, listing open PRs) are plain Python (`github_actions.py`) that make real API calls and can't hallucinate a result. Getting from a Slack sentence to "which tool, what parameters" goes through `llm_router.py` -- one narrow classification call, same shape as `intent_gate.py`'s proven yes/no pattern, just richer JSON output. The model never gets closer to *executing* anything than picking a name and a number; this is deliberate, see `openhands_client.py`'s `native_tool_calling` comment for why actual model-driven tool-calling was abandoned. Extend `PR_COMMANDS` in `app.py` and add a handler function in `github_actions.py` to add more.
+
+## Testing
+```bash
+./scripts/run-tests.sh                    # fast unit tests, no model/network needed
+./scripts/run-tests.sh --run-integration  # + live classifier tests against OLLAMA_MODEL
+```
+Runs inside the chat-bridge image so it always tests what actually ships. `scripts/mirror-to-acr.sh` runs the unit suite (and aborts the push on failure) before mirroring images; integration tests aren't run automatically there since they need Ollama already up on the target model.
 
 ## Changing models
 One line in `.env`, then re-pull and restart:
