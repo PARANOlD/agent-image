@@ -36,7 +36,12 @@ fi
 
 echo
 echo "== Recording deploy info (drives Gary's Slack announcement) =="
-./scripts/write-deploy-info.sh
+# Tolerated, not fatal: write-deploy-info.sh refuses to run on an uncommitted
+# tree (see its own comment -- that used to silently produce a misleading
+# announcement instead). Testing local changes before committing is a normal
+# workflow, so a dirty tree here just means the *next* commit's restart will
+# pick up the accumulated changes; it must not block bringing the stack up.
+./scripts/write-deploy-info.sh || echo "   (skipped -- uncommitted changes; stack still starting)"
 
 echo
 echo "== Starting stack =="

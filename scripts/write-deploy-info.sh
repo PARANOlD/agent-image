@@ -9,6 +9,16 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Refuse to run against a dirty tree instead of silently recording
+# "(includes uncommitted local changes)" -- that flag existed as a warning,
+# but in practice it only ever meant this script ran before `git commit`
+# instead of after, a mistake worth catching here rather than repeating.
+if ! git diff --quiet HEAD 2>/dev/null || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "write-deploy-info.sh: working tree is not clean -- commit first, then run this." >&2
+  git status --short >&2
+  exit 1
+fi
+
 INFO=state/deploy-info.json
 SHA=$(git rev-parse --short HEAD)
 # Human-readable timestamp, e.g. 2026.09.16-13.03 -- the commit SHA is kept
@@ -43,10 +53,6 @@ if [ -n "$MODEL" ] && [ "$MODEL" != "$PREV_MODEL" ]; then
   else
     CHANGES+=("Model set for the first time on this box")
   fi
-fi
-
-if ! git diff --quiet HEAD 2>/dev/null; then
-  CHANGES+=("(includes uncommitted local changes)")
 fi
 
 mkdir -p state
