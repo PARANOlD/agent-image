@@ -11,7 +11,14 @@ import os
 import threading
 
 import state
-from github_actions import find_pr_reference, format_pr_status, get_pr
+from github_actions import (
+    find_pr_list_request,
+    find_pr_reference,
+    format_pr_list,
+    format_pr_status,
+    get_pr,
+    list_prs,
+)
 from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
 from intent_gate import is_directed_at_gary
@@ -122,6 +129,16 @@ def main():
                     reply(format_pr_status(repo, number, data))
                     react(WORKING_EMOJI, remove=True)
                     react(DONE_EMOJI if data is not None else FAILED_EMOJI)
+                    return
+
+                list_repo = find_pr_list_request(text, default_repo)
+                if list_repo:
+                    react(WORKING_EMOJI)
+                    log.info("PR list: %s (requested by %s/%s)", list_repo, "slack", thread_key)
+                    prs = list_prs(github_auth, list_repo)
+                    reply(format_pr_list(list_repo, prs))
+                    react(WORKING_EMOJI, remove=True)
+                    react(DONE_EMOJI if prs is not None else FAILED_EMOJI)
                     return
 
             engaged = False
