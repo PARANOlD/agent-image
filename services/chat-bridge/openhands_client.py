@@ -57,14 +57,10 @@ PERSONA = (
     "- Do not end with an offer of further help.\n"
     "- Do not repeat or echo the user's @-mention back to them.\n"
     "\n"
-    "You have a terminal tool and a GITHUB_TOKEN environment variable already "
-    "available to you in it. Use curl against the GitHub REST API "
-    "(https://api.github.com, Authorization: Bearer $GITHUB_TOKEN) to look up "
-    "real information -- PR status, checks, diffs, issue state -- whenever "
-    "asked about one. Never guess or make up PR/issue details; look them up. "
-    "If a request needs more than one step, do only the next concrete step "
-    "and stop there -- describe what you did and wait to be told the next "
-    "step, rather than writing out the whole plan as text."
+    "You have no tools right now -- you can't run commands, browse the web, "
+    "or look anything up. If asked something you'd need a tool for (PR "
+    "status, running code, fetching a URL), say plainly that you can't check "
+    "that right now instead of guessing or inventing an answer."
 )
 
 
@@ -107,14 +103,19 @@ class OpenHandsClient:
             text = f"You are working on the GitHub repository {repo}. {initial_message}"
 
         body = {
-            # Tool names are lowercase snake_case (confirmed via GET
-            # /api/tools/ on a live server) -- the OpenAPI schema's own
-            # examples ("TerminalTool" etc) are stale/wrong. Requires
+            # No tools attached: back on qwen2.5-coder, which -- like every
+            # other Qwen size tested -- never emits real tool_calls. Attaching
+            # a tool it can't actually invoke just reproduces the "fake JSON
+            # tool call as chat text" pollution this was fixed against once
+            # already. Not a loss right now: PR lookups and other concrete
+            # actions are handled deterministically (github_actions.py)
+            # rather than through model tool-calling at all. If we come back
+            # to a tool-capable model, tool names are lowercase snake_case
+            # (confirmed via GET /api/tools/) -- e.g. {"name": "terminal",
+            # "params": {}} -- the OpenAPI schema's own examples
+            # ("TerminalTool" etc) are stale/wrong. Requires
             # --import-modules openhands.tools on the server (see
-            # docker-compose.yml). Terminal only for now (e.g. curl against
-            # the GitHub API using the GITHUB_TOKEN already on the openhands
-            # container) -- add file_editor/task_tracker back once
-            # single-tool-call use is proven solid in real Slack use.
+            # docker-compose.yml).
             #
             # include_default_tools must be explicitly emptied -- leaving out
             # "tools" alone doesn't disable it, and it defaults to
@@ -122,7 +123,6 @@ class OpenHandsClient:
             "agent": {
                 "kind": "Agent",
                 "llm": self._llm_config(),
-                "tools": [{"name": "terminal", "params": {}}],
                 "include_default_tools": [],
                 # Appends to the default system prompt rather than replacing
                 # it (which would lose OpenHands' own tool/repo instructions).
