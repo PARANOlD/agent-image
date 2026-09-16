@@ -15,6 +15,7 @@ from github_actions import format_pr_list, format_pr_status, get_pr, list_prs
 from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
 from github_pr_creator import PrCreationError, VALID_BRANCH_TYPES, create_branch_and_pr
+from github_ticket_creator import TicketCreationError, create_ticket
 from intent_gate import is_directed_at_gary
 from llm_router import route as route_command
 from openhands_client import OpenHandsClient
@@ -23,7 +24,14 @@ from slack_listener import SlackListener
 # Registry for llm_router.route() -- the model's only job is picking one of
 # these (or "none") and extracting params; execution is 100% the plain
 # Python functions above. Add future deterministic tools here.
-PR_COMMANDS = {
+#
+# Workflow note: create_ticket vs create_pr are deliberately separate --
+# per the ticket -> pick-up -> draft-PR -> collaborate -> merge workflow,
+# "I'd like X" should open a ticket to discuss first, not immediately cut
+# code. create_pr stays for the narrower "just cut a branch and PR this"
+# case. The "pick up ticket #N" step (ticket -> branch -> draft PR) isn't
+# built yet -- create_pr doesn't take an issue number or open as draft.
+GITHUB_COMMANDS = {
     "pr_status": {
         "description": "the status/details of one specific pull request",
         "params": "number (integer, the PR number)",
@@ -33,8 +41,12 @@ PR_COMMANDS = {
         "params": "none",
     },
     "create_pr": {
-        "description": "cut a branch and open a pull request for a described code/file change",
+        "description": "cut a branch and open a pull request right now for a described code/file change -- only when explicitly asked to cut a branch or open a PR, not for a general feature request",
         "params": "branch_type: one of feature, bugfix, hotfix (default feature if unclear)",
+    },
+    "create_ticket": {
+        "description": "open a new GitHub issue/ticket to propose and discuss a requested code change before any branch or PR is created -- this is the default for a general feature/change request",
+        "params": "none",
     },
 }
 
@@ -133,7 +145,7 @@ def main():
             # intent gate, so it must not run for those.
             if github_auth and allow_new and len(github_repos) == 1:
                 repo = github_repos[0]
-                routed = route_command(text, PR_COMMANDS)
+                routed = route_command(text, GITHUB_COMMANDS)
 
                 if routed["command"] == "pr_status" and isinstance(routed["params"].get("number"), int):
                     number = routed["params"]["number"]
@@ -177,6 +189,25 @@ def main():
                     except Exception:
                         log.exception("PR creation failed unexpectedly for %s/%s", "slack", thread_key)
                         reply("Something went wrong opening that PR -- check chat-bridge logs.")
+                        react(WORKING_EMOJI, remove=True)
+                        react(FAILED_EMOJI)
+                    return
+
+                if routed["command"] == "create_ticket":
+                    react(WORKING_EMOJI)
+                    log.info("Ticket creation requested: %s (from %s/%s)", repo, "slack", thread_key)
+                    try:
+                        ticket = create_ticket(github_auth, repo, text)
+                        reply(f"Opened ticket #{ticket['number']}: {ticket['title']}\n{ticket['url']}")
+                        react(WORKING_EMOJI, remove=True)
+                        react(DONE_EMOJI)
+                    except TicketCreationError as exc:
+                        reply(str(exc))
+                        react(WORKING_EMOJI, remove=True)
+                        react(FAILED_EMOJI)
+                    except Exception:
+                        log.exception("Ticket creation failed unexpectedly for %s/%s", "slack", thread_key)
+                        reply("Something went wrong opening that ticket -- check chat-bridge logs.")
                         react(WORKING_EMOJI, remove=True)
                         react(FAILED_EMOJI)
                     return

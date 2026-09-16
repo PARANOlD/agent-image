@@ -12,10 +12,10 @@ from llm_router import route
 
 pytestmark = pytest.mark.integration
 
-# Mirrors app.py's PR_COMMANDS -- duplicated rather than imported so this
-# file doesn't pull in app.py's other import-time side effects (state.py
-# opens a real sqlite file on import).
-PR_COMMANDS = {
+# Mirrors app.py's GITHUB_COMMANDS -- duplicated rather than imported so
+# this file doesn't pull in app.py's other import-time side effects
+# (state.py opens a real sqlite file on import).
+GITHUB_COMMANDS = {
     "pr_status": {
         "description": "the status/details of one specific pull request",
         "params": "number (integer, the PR number)",
@@ -25,8 +25,12 @@ PR_COMMANDS = {
         "params": "none",
     },
     "create_pr": {
-        "description": "cut a branch and open a pull request for a described code/file change",
+        "description": "cut a branch and open a pull request right now for a described code/file change -- only when explicitly asked to cut a branch or open a PR, not for a general feature request",
         "params": "branch_type: one of feature, bugfix, hotfix (default feature if unclear)",
+    },
+    "create_ticket": {
+        "description": "open a new GitHub issue/ticket to propose and discuss a requested code change before any branch or PR is created -- this is the default for a general feature/change request",
+        "params": "none",
     },
 }
 
@@ -42,11 +46,16 @@ PR_COMMANDS = {
     ("can you create a bugfix branch to fix the typo in the readme and raise a PR",
      "create_pr", None, "bugfix"),
     ("raise a hotfix PR that adds a .gitattributes file", "create_pr", None, "hotfix"),
+    # create_ticket vs create_pr is the real risk in this registry: a general
+    # request should become a ticket to discuss, not an immediate branch/PR.
+    ("I'd like to add dark mode support to the config welcome page", "create_ticket", None, None),
+    ("can you open a ticket for adding CSV export to the reports page", "create_ticket", None, None),
+    ("file an issue about the flaky login redirect", "create_ticket", None, None),
     ("how do I reverse a string in C#", None, None, None),
     ("thanks!", None, None, None),
 ])
 def test_router_classifies_correctly(text, want_command, want_number, want_branch_type):
-    result = route(text, PR_COMMANDS)
+    result = route(text, GITHUB_COMMANDS)
     assert result["command"] == want_command, f"{text!r} -> {result}"
     if want_number is not None:
         assert result["params"].get("number") == want_number, f"{text!r} -> {result}"

@@ -58,6 +58,10 @@ def route(text: str, commands: dict) -> dict:
         f"{listing}\n\n"
         'If none apply -- it\'s general conversation, a coding question, '
         'anything else -- use "none".\n\n'
+        "Never invent a value for a required param that isn't actually present "
+        "in the message (e.g. a PR number) -- if a command needs a param the "
+        "message doesn't give you, it's not that command; pick a different one "
+        "or use \"none\" instead.\n\n"
         f'Message: "{text}"\n\n'
         "Respond with ONLY a JSON object, nothing else, no markdown fences: "
         '{"command": "<name or none>", "params": {...}}'
