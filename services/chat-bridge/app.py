@@ -14,7 +14,7 @@ import state
 from github_actions import format_branch_status, format_pr_list, format_pr_status, get_branch, get_pr, list_prs
 from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
-from github_pr_creator import PrCreationError, VALID_BRANCH_TYPES, create_branch_and_pr
+from github_pr_creator import PrCreationError, VALID_BRANCH_TYPES, create_branch_and_pr, open_pr_for_branch
 from github_ticket_creator import TicketCreationError, create_ticket
 from intent_gate import is_directed_at_gary
 from llm_router import route as route_command
@@ -51,6 +51,10 @@ GITHUB_COMMANDS = {
     "start_work": {
         "description": "the user has already created a branch themselves and wants Gary to check it out/pull it and start tracking it as the active branch for this conversation, e.g. \"get started on feature/login-fix\"",
         "params": "branch (string, the exact branch name)",
+    },
+    "open_pr": {
+        "description": "open a pull request back to main for the branch already being tracked in this conversation (from a prior start_work) -- e.g. \"create a draft PR for this branch\", \"open a PR to main now\", \"raise the PR\". NOT for cutting a brand new branch (that's create_pr).",
+        "params": "draft (boolean; DEFAULT true -- only set false if the message explicitly says the PR should be non-draft/ready for review/active, e.g. \"not draft\", \"mark it ready\", \"make it active\". If the message says nothing about draft/ready status, use true.)",
     },
 }
 
@@ -143,11 +147,21 @@ def main():
             # through OpenHands. The model's job stops at classification; it
             # never gets a chance to fabricate a call or a result.
             #
-            # Only for allow_new (an explicit @mention or a DM) -- a passive
+            # Runs for allow_new (an explicit @mention or a DM) -- a passive
             # thread reply that merely mentions a PR in conversation isn't
             # necessarily addressed to Gary, and this shortcut bypasses the
-            # intent gate, so it must not run for those.
-            if github_auth and allow_new and len(github_repos) == 1:
+            # intent gate, so it must not run for those *unless* this thread
+            # already has an active_branch (state.py) -- start_work having
+            # been run here is an explicit, unambiguous signal the user is
+            # mid-workflow with Gary in this exact thread. Without this,
+            # every router command is a dead end after the first message:
+            # router commands never create an OpenHands conversation for the
+            # thread, so a same-thread follow-up with no re-mention falls
+            # through to handle(), finds no conversation to continue, and is
+            # silently dropped -- no reply, no reaction, nothing (caught
+            # 2026-09-16: "go ahead and create a draft PR..." went nowhere).
+            tracked_branch = state.get_active_branch("slack", thread_key)
+            if github_auth and (allow_new or tracked_branch) and len(github_repos) == 1:
                 repo = github_repos[0]
                 routed = route_command(text, GITHUB_COMMANDS)
 
@@ -230,6 +244,39 @@ def main():
                     reply(format_branch_status(repo, branch, data))
                     react(WORKING_EMOJI, remove=True)
                     react(DONE_EMOJI if data is not None else FAILED_EMOJI)
+                    return
+
+                if routed["command"] == "open_pr":
+                    if not tracked_branch:
+                        reply("I don't have a branch tracked for this thread yet -- "
+                              "tell me to start work on one first, e.g. \"get started on feature/x\".")
+                        return
+                    draft = routed["params"].get("draft")
+                    if not isinstance(draft, bool):
+                        draft = True
+                    react(WORKING_EMOJI)
+                    log.info("Open PR requested for tracked branch %s@%s draft=%s (from %s/%s)",
+                             tracked_branch, repo, draft, "slack", thread_key)
+                    try:
+                        result = open_pr_for_branch(github_auth, repo, tracked_branch, draft=draft)
+                        label = "draft PR" if draft else "PR"
+                        message = f"Opened {label} `{result['branch']}` → `main`: {result['pr_url']}"
+                        reply(message)
+                        react(WORKING_EMOJI, remove=True)
+                        react(DONE_EMOJI)
+                        status_channel = env("SLACK_STATUS_CHANNEL")
+                        requesting_channel = thread_key.split(":", 1)[0]
+                        if status_channel and status_channel != requesting_channel:
+                            slack.post_to_channel(status_channel, f"*New PR opened by Gary*\n{message}")
+                    except PrCreationError as exc:
+                        reply(str(exc))
+                        react(WORKING_EMOJI, remove=True)
+                        react(FAILED_EMOJI)
+                    except Exception:
+                        log.exception("Open PR failed unexpectedly for %s/%s", "slack", thread_key)
+                        reply("Something went wrong opening that PR -- check chat-bridge logs.")
+                        react(WORKING_EMOJI, remove=True)
+                        react(FAILED_EMOJI)
                     return
 
             engaged = False

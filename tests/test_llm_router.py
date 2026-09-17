@@ -36,6 +36,10 @@ GITHUB_COMMANDS = {
         "description": "the user has already created a branch themselves and wants Gary to check it out/pull it and start tracking it as the active branch for this conversation, e.g. \"get started on feature/login-fix\"",
         "params": "branch (string, the exact branch name)",
     },
+    "open_pr": {
+        "description": "open a pull request back to main for the branch already being tracked in this conversation (from a prior start_work) -- e.g. \"create a draft PR for this branch\", \"open a PR to main now\", \"raise the PR\". NOT for cutting a brand new branch (that's create_pr).",
+        "params": "draft (boolean; DEFAULT true -- only set false if the message explicitly says the PR should be non-draft/ready for review/active, e.g. \"not draft\", \"mark it ready\", \"make it active\". If the message says nothing about draft/ready status, use true.)",
+    },
 }
 
 
@@ -76,6 +80,18 @@ def test_router_classifies_start_work(text, want_branch):
     result = route(text, GITHUB_COMMANDS)
     assert result["command"] == "start_work", f"{text!r} -> {result}"
     assert result["params"].get("branch") == want_branch, f"{text!r} -> {result}"
+
+
+@pytest.mark.parametrize("text,want_draft", [
+    ("go ahead and create a draft PR for us with this branch to main", True),
+    ("open a PR for this branch", True),
+    ("raise a PR now, not as draft, we're ready", False),
+    ("open the PR to main and make it active, not draft", False),
+])
+def test_router_classifies_open_pr(text, want_draft):
+    result = route(text, GITHUB_COMMANDS)
+    assert result["command"] == "open_pr", f"{text!r} -> {result}"
+    assert result["params"].get("draft") == want_draft, f"{text!r} -> {result}"
 
 
 def test_router_falls_back_safely_on_garbage_commands():

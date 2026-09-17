@@ -6,7 +6,13 @@ here: input validation (no model/network), and the two LLM calls that
 feed it (integration, live model)."""
 import pytest
 
-from github_pr_creator import PrCreationError, _generate_metadata, create_branch_and_pr
+from github_pr_creator import (
+    PrCreationError,
+    _generate_metadata,
+    _generate_pr_title_and_body,
+    create_branch_and_pr,
+    open_pr_for_branch,
+)
 
 pytestmark_integration = pytest.mark.integration
 
@@ -16,6 +22,15 @@ def test_invalid_branch_type_rejected_without_any_network_call():
         create_branch_and_pr(auth=None, repo="owner/repo", branch_type="release", description="anything")
     for word in ("feature", "bugfix", "hotfix"):
         assert word in str(exc_info.value)
+
+
+def test_open_pr_for_branch_reports_missing_branch_without_a_real_network_call():
+    # auth=None makes get_branch's internal call raise (no .get_token()),
+    # which it swallows and returns None for -- open_pr_for_branch should
+    # surface that as a clear PrCreationError, not an unhandled traceback.
+    with pytest.raises(PrCreationError) as exc_info:
+        open_pr_for_branch(auth=None, repo="owner/repo", branch="feature/missing")
+    assert "feature/missing" in str(exc_info.value)
 
 
 @pytest.mark.integration
@@ -31,3 +46,10 @@ def test_generate_metadata_produces_usable_fields():
     assert meta["slug"] == meta["slug"].lower()
     assert " " not in meta["slug"]
     assert all(c.isalnum() or c == "-" for c in meta["slug"])
+
+
+@pytest.mark.integration
+def test_generate_pr_title_and_body_produces_usable_fields():
+    meta = _generate_pr_title_and_body("feature/update-wizard", "Add multi-step update wizard UI")
+    assert meta["title"]
+    assert meta["body"]

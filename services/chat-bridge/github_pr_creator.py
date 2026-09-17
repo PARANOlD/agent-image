@@ -28,6 +28,8 @@ import tempfile
 
 import requests
 
+from github_actions import get_branch
+
 log = logging.getLogger("github_pr_creator")
 
 GITHUB_API = "https://api.github.com"
@@ -113,6 +115,55 @@ def _run(cmd: list[str], cwd: str, env: dict | None = None) -> None:
     if result.returncode != 0:
         log.error("Command failed: %s\nstdout: %s\nstderr: %s", cmd, result.stdout, result.stderr)
         raise PrCreationError(f"`{cmd[0]} {cmd[1]}` failed -- check chat-bridge logs for details.")
+
+
+def _generate_pr_title_and_body(branch: str, latest_commit_message: str) -> dict:
+    prompt = (
+        f'Write a pull request title and body for branch "{branch}", whose '
+        f'latest commit message is:\n\n"{latest_commit_message}"\n\n'
+        "Produce exactly this JSON object, nothing else, no markdown fences:\n"
+        '{"title": "short PR title", "body": "one or two sentences describing the change"}'
+    )
+    content = _chat(prompt, max_tokens=300)
+    m = _JSON_BLOCK.search(content)
+    if not m:
+        raise PrCreationError("Couldn't draft a PR title/body for that branch.")
+    try:
+        meta = json.loads(m.group(0))
+    except json.JSONDecodeError:
+        raise PrCreationError("Couldn't draft a PR title/body for that branch.")
+    if not meta.get("title") or not meta.get("body"):
+        raise PrCreationError("Model response was missing a PR title or body.")
+    return meta
+
+
+def open_pr_for_branch(auth, repo: str, branch: str, draft: bool = True) -> dict:
+    """Opens a PR for a branch that ALREADY EXISTS (e.g. tracked via
+    start_work) -- no clone, no new branch, no invented file content. Use
+    create_branch_and_pr instead when there's no branch yet and Gary needs
+    to cut one and write a file. Returns {"pr_url": str, "branch": str,
+    "draft": bool}. Raises PrCreationError with a user-safe message."""
+    branch_data = get_branch(auth, repo, branch)
+    if branch_data is None:
+        raise PrCreationError(f"Couldn't find branch `{branch}` in {repo} -- check the exact name.")
+    latest_message = branch_data["commit"]["commit"]["message"].split("\n", 1)[0]
+    meta = _generate_pr_title_and_body(branch, latest_message)
+
+    resp = requests.post(
+        f"{GITHUB_API}/repos/{repo}/pulls",
+        headers={
+            "Authorization": f"Bearer {auth.get_token()}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        json={"title": meta["title"], "head": branch, "base": "main", "body": meta["body"], "draft": draft},
+        timeout=15,
+    )
+    if not resp.ok:
+        log.error("PR creation for existing branch failed: %s %s", resp.status_code, resp.text[:500])
+        raise PrCreationError(f"Opening the PR failed ({resp.status_code}).")
+
+    return {"pr_url": resp.json()["html_url"], "branch": branch, "draft": draft}
 
 
 def create_branch_and_pr(auth, repo: str, branch_type: str, description: str) -> dict:
