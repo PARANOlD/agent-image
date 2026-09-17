@@ -43,6 +43,16 @@ def _connect() -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS active_branch (
+            surface TEXT NOT NULL,
+            thread_key TEXT NOT NULL,
+            branch TEXT NOT NULL,
+            PRIMARY KEY (surface, thread_key)
+        )
+        """
+    )
     conn.commit()
     return conn
 
@@ -77,6 +87,27 @@ def find_thread_by_conversation(conversation_id: str) -> tuple[str, str] | None:
             (conversation_id,),
         ).fetchone()
     return tuple(row) if row else None
+
+
+def get_active_branch(surface: str, thread_key: str) -> str | None:
+    """Which branch (if any) this thread is currently working against --
+    set by a "start work on <branch>" request, read back by future commands
+    that push further commits to it (not yet built)."""
+    with _lock:
+        row = _conn.execute(
+            "SELECT branch FROM active_branch WHERE surface = ? AND thread_key = ?",
+            (surface, thread_key),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def set_active_branch(surface: str, thread_key: str, branch: str) -> None:
+    with _lock:
+        _conn.execute(
+            "INSERT OR REPLACE INTO active_branch (surface, thread_key, branch) VALUES (?, ?, ?)",
+            (surface, thread_key, branch),
+        )
+        _conn.commit()
 
 
 def get_poll_cursor(repo: str, default: str) -> str:

@@ -67,6 +67,38 @@ def list_prs(auth, repo: str, state: str = "open") -> list[dict] | None:
         return None
 
 
+def get_branch(auth, repo: str, branch: str) -> dict | None:
+    """Fetch a branch's real data (name + latest commit). None on any
+    failure (doesn't exist, network error, etc.) -- same never-fabricate
+    contract as get_pr."""
+    try:
+        resp = requests.get(
+            f"{GITHUB_API}/repos/{repo}/branches/{branch}",
+            headers={
+                "Authorization": f"Bearer {auth.get_token()}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=15,
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    except Exception:
+        log.exception("Failed to fetch branch %s in %s", branch, repo)
+        return None
+
+
+def format_branch_status(repo: str, branch: str, data: dict | None) -> str:
+    if data is None:
+        return f"Couldn't find branch `{branch}` in {repo} -- check the exact name and try again."
+    commit = data["commit"]
+    sha = commit["sha"][:7]
+    message = commit["commit"]["message"].split("\n", 1)[0]
+    return f"Tracking `{branch}` for this thread. Latest commit: `{sha}` {message}"
+
+
 def format_pr_list(repo: str, prs: list[dict] | None) -> str:
     if prs is None:
         return f"Couldn't list PRs for {repo} (lookup failed -- check chat-bridge logs)."

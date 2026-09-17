@@ -32,6 +32,10 @@ GITHUB_COMMANDS = {
         "description": "open a new GitHub issue/ticket to propose and discuss a requested code change before any branch or PR is created -- this is the default for a general feature/change request",
         "params": "none",
     },
+    "start_work": {
+        "description": "the user has already created a branch themselves and wants Gary to check it out/pull it and start tracking it as the active branch for this conversation, e.g. \"get started on feature/login-fix\"",
+        "params": "branch (string, the exact branch name)",
+    },
 }
 
 
@@ -61,6 +65,17 @@ def test_router_classifies_correctly(text, want_command, want_number, want_branc
         assert result["params"].get("number") == want_number, f"{text!r} -> {result}"
     if want_branch_type is not None:
         assert result["params"].get("branch_type") == want_branch_type, f"{text!r} -> {result}"
+
+
+@pytest.mark.parametrize("text,want_branch", [
+    ("get started on feature/login-fix", "feature/login-fix"),
+    ("can you check out and pull bugfix/typo-in-readme", "bugfix/typo-in-readme"),
+    ("start working on the branch called feature/dark-mode", "feature/dark-mode"),
+])
+def test_router_classifies_start_work(text, want_branch):
+    result = route(text, GITHUB_COMMANDS)
+    assert result["command"] == "start_work", f"{text!r} -> {result}"
+    assert result["params"].get("branch") == want_branch, f"{text!r} -> {result}"
 
 
 def test_router_falls_back_safely_on_garbage_commands():

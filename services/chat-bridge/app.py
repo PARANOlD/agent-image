@@ -11,7 +11,7 @@ import os
 import threading
 
 import state
-from github_actions import format_pr_list, format_pr_status, get_pr, list_prs
+from github_actions import format_branch_status, format_pr_list, format_pr_status, get_branch, get_pr, list_prs
 from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
 from github_pr_creator import PrCreationError, VALID_BRANCH_TYPES, create_branch_and_pr
@@ -47,6 +47,10 @@ GITHUB_COMMANDS = {
     "create_ticket": {
         "description": "open a new GitHub issue/ticket to propose and discuss a requested code change before any branch or PR is created -- this is the default for a general feature/change request",
         "params": "none",
+    },
+    "start_work": {
+        "description": "the user has already created a branch themselves and wants Gary to check it out/pull it and start tracking it as the active branch for this conversation, e.g. \"get started on feature/login-fix\"",
+        "params": "branch (string, the exact branch name)",
     },
 }
 
@@ -210,6 +214,22 @@ def main():
                         reply("Something went wrong opening that ticket -- check chat-bridge logs.")
                         react(WORKING_EMOJI, remove=True)
                         react(FAILED_EMOJI)
+                    return
+
+                if routed["command"] == "start_work":
+                    branch = routed["params"].get("branch")
+                    if not isinstance(branch, str) or not branch.strip():
+                        reply("Which branch? Give me the exact branch name.")
+                        return
+                    branch = branch.strip()
+                    react(WORKING_EMOJI)
+                    log.info("Start work requested: %s@%s (from %s/%s)", branch, repo, "slack", thread_key)
+                    data = get_branch(github_auth, repo, branch)
+                    if data is not None:
+                        state.set_active_branch("slack", thread_key, branch)
+                    reply(format_branch_status(repo, branch, data))
+                    react(WORKING_EMOJI, remove=True)
+                    react(DONE_EMOJI if data is not None else FAILED_EMOJI)
                     return
 
             engaged = False

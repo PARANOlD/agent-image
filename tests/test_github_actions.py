@@ -1,6 +1,6 @@
 """Pure unit tests: formatting logic only, no network/model involved.
 Fast -- these should run on every build."""
-from github_actions import format_pr_list, format_pr_status
+from github_actions import format_branch_status, format_pr_list, format_pr_status
 
 OPEN_PR = {
     "title": "Add Next.js welcome page for Gary configuration",
@@ -59,3 +59,26 @@ def test_format_pr_list_empty():
 def test_format_pr_list_lookup_failed():
     text = format_pr_list("owner/repo", None)
     assert "Couldn't list PRs" in text
+
+
+BRANCH = {
+    "name": "feature/login-fix",
+    "commit": {
+        "sha": "e41b8b25fc58989f208e67cdaa2081d3943a0dca",
+        "commit": {"message": "Fix login redirect loop\n\nCo-authored-by: someone"},
+    },
+}
+
+
+def test_format_branch_status_found():
+    text = format_branch_status("owner/repo", "feature/login-fix", BRANCH)
+    assert "feature/login-fix" in text
+    assert "e41b8b2" in text
+    assert "Fix login redirect loop" in text
+    assert "Co-authored-by" not in text  # only the commit's first line
+
+
+def test_format_branch_status_not_found():
+    text = format_branch_status("owner/repo", "feature/missing", None)
+    assert "Couldn't find branch" in text
+    assert "feature/missing" in text
