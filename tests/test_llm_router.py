@@ -37,8 +37,12 @@ GITHUB_COMMANDS = {
         "params": "branch (string, the exact branch name)",
     },
     "open_pr": {
-        "description": "open a pull request back to main for the branch already being tracked in this conversation (from a prior start_work) -- e.g. \"create a draft PR for this branch\", \"open a PR to main now\", \"raise the PR\". NOT for cutting a brand new branch (that's create_pr).",
+        "description": "open a NEW pull request back to main for the branch already being tracked in this conversation (from a prior start_work) -- only when no PR exists for it yet, e.g. \"create a draft PR for this branch\", \"open a PR to main now\". NOT for cutting a brand new branch (that's create_pr), and NOT for a PR that's already open (that's mark_pr_ready).",
         "params": "draft (boolean; DEFAULT true -- only set false if the message explicitly says the PR should be non-draft/ready for review/active, e.g. \"not draft\", \"mark it ready\", \"make it active\". If the message says nothing about draft/ready status, use true.)",
+    },
+    "mark_pr_ready": {
+        "description": "convert the EXISTING pull request for the branch tracked in this conversation from draft to ready for review / active -- e.g. \"set that to active\", \"mark it ready\", \"take it out of draft\", \"it's ready for review now\". Only when a PR for this branch already exists.",
+        "params": "none",
     },
 }
 
@@ -46,7 +50,7 @@ GITHUB_COMMANDS = {
 @pytest.mark.parametrize("text,want_command,want_number,want_branch_type", [
     ("what are my active PRs right now?", "pr_list", None, None),
     ("gimme my open pull reqs", "pr_list", None, None),
-    ("anything waiting on review?", "pr_list", None, None),
+    ("what PRs are currently open?", "pr_list", None, None),
     ("whats the status of PR 1", "pr_status", 1, None),
     ("can you check on pull request number 1 for me", "pr_status", 1, None),
     ("is #1 merged yet", "pr_status", 1, None),
@@ -92,6 +96,17 @@ def test_router_classifies_open_pr(text, want_draft):
     result = route(text, GITHUB_COMMANDS)
     assert result["command"] == "open_pr", f"{text!r} -> {result}"
     assert result["params"].get("draft") == want_draft, f"{text!r} -> {result}"
+
+
+@pytest.mark.parametrize("text", [
+    "set that to active and put me as the reviewer",
+    "mark it ready for review",
+    "take it out of draft",
+    "it's ready now, take off draft status",
+])
+def test_router_classifies_mark_pr_ready(text):
+    result = route(text, GITHUB_COMMANDS)
+    assert result["command"] == "mark_pr_ready", f"{text!r} -> {result}"
 
 
 def test_router_falls_back_safely_on_garbage_commands():

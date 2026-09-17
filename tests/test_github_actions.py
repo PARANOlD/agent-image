@@ -1,6 +1,6 @@
 """Pure unit tests: formatting logic only, no network/model involved.
 Fast -- these should run on every build."""
-from github_actions import format_branch_status, format_pr_list, format_pr_status
+from github_actions import format_branch_status, format_pr_list, format_pr_status, get_pr_for_branch, mark_pr_ready
 
 OPEN_PR = {
     "title": "Add Next.js welcome page for Gary configuration",
@@ -82,3 +82,13 @@ def test_format_branch_status_not_found():
     text = format_branch_status("owner/repo", "feature/missing", None)
     assert "Couldn't find branch" in text
     assert "feature/missing" in text
+
+
+def test_get_pr_for_branch_fails_safe_without_a_real_network_call():
+    # auth=None makes auth.get_token() raise inside the try/except -- should
+    # come back as None, not an unhandled traceback.
+    assert get_pr_for_branch(auth=None, repo="owner/repo", branch="feature/missing") is None
+
+
+def test_mark_pr_ready_fails_safe_without_a_real_network_call():
+    assert mark_pr_ready(auth=None, node_id="PR_fake") is False

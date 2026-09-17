@@ -90,6 +90,59 @@ def get_branch(auth, repo: str, branch: str) -> dict | None:
         return None
 
 
+def get_pr_for_branch(auth, repo: str, branch: str) -> dict | None:
+    """Find the (open or closed) PR whose head is this branch, if any. None
+    if there isn't one or the lookup fails -- never fabricated."""
+    try:
+        resp = requests.get(
+            f"{GITHUB_API}/repos/{repo}/pulls",
+            params={"head": f"{repo.split('/')[0]}:{branch}", "state": "all", "per_page": 1},
+            headers={
+                "Authorization": f"Bearer {auth.get_token()}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        results = resp.json()
+        return results[0] if results else None
+    except Exception:
+        log.exception("Failed to find PR for branch %s in %s", branch, repo)
+        return None
+
+
+def mark_pr_ready(auth, node_id: str) -> bool:
+    """Converts a draft PR to ready-for-review. REST's PATCH .../pulls/{n}
+    silently ignores a "draft" field (verified empirically 2026-09-16 --
+    200 response, draft unchanged) -- this is GraphQL-only, via the
+    markPullRequestReadyForReview mutation. Needs the PR's GraphQL node_id
+    (present on any REST PR object as "node_id"), not its number."""
+    query = (
+        "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) "
+        "{ pullRequest { isDraft } } }"
+    )
+    try:
+        resp = requests.post(
+            f"{GITHUB_API}/graphql",
+            headers={
+                "Authorization": f"Bearer {auth.get_token()}",
+                "Accept": "application/vnd.github+json",
+            },
+            json={"query": query, "variables": {"id": node_id}},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("errors"):
+            log.error("markPullRequestReadyForReview errors: %s", data["errors"])
+            return False
+        return data["data"]["markPullRequestReadyForReview"]["pullRequest"]["isDraft"] is False
+    except Exception:
+        log.exception("Failed to mark PR ready (node_id=%s)", node_id)
+        return False
+
+
 def format_branch_status(repo: str, branch: str, data: dict | None) -> str:
     if data is None:
         return f"Couldn't find branch `{branch}` in {repo} -- check the exact name and try again."

@@ -11,7 +11,16 @@ import os
 import threading
 
 import state
-from github_actions import format_branch_status, format_pr_list, format_pr_status, get_branch, get_pr, list_prs
+from github_actions import (
+    format_branch_status,
+    format_pr_list,
+    format_pr_status,
+    get_branch,
+    get_pr,
+    get_pr_for_branch,
+    list_prs,
+    mark_pr_ready,
+)
 from github_app_auth import GitHubAppAuth
 from github_poller import GitHubPoller
 from github_pr_creator import PrCreationError, VALID_BRANCH_TYPES, create_branch_and_pr, open_pr_for_branch
@@ -53,8 +62,12 @@ GITHUB_COMMANDS = {
         "params": "branch (string, the exact branch name)",
     },
     "open_pr": {
-        "description": "open a pull request back to main for the branch already being tracked in this conversation (from a prior start_work) -- e.g. \"create a draft PR for this branch\", \"open a PR to main now\", \"raise the PR\". NOT for cutting a brand new branch (that's create_pr).",
+        "description": "open a NEW pull request back to main for the branch already being tracked in this conversation (from a prior start_work) -- only when no PR exists for it yet, e.g. \"create a draft PR for this branch\", \"open a PR to main now\". NOT for cutting a brand new branch (that's create_pr), and NOT for a PR that's already open (that's mark_pr_ready).",
         "params": "draft (boolean; DEFAULT true -- only set false if the message explicitly says the PR should be non-draft/ready for review/active, e.g. \"not draft\", \"mark it ready\", \"make it active\". If the message says nothing about draft/ready status, use true.)",
+    },
+    "mark_pr_ready": {
+        "description": "convert the EXISTING pull request for the branch tracked in this conversation from draft to ready for review / active -- e.g. \"set that to active\", \"mark it ready\", \"take it out of draft\", \"it's ready for review now\". Only when a PR for this branch already exists.",
+        "params": "none",
     },
 }
 
@@ -275,6 +288,36 @@ def main():
                     except Exception:
                         log.exception("Open PR failed unexpectedly for %s/%s", "slack", thread_key)
                         reply("Something went wrong opening that PR -- check chat-bridge logs.")
+                        react(WORKING_EMOJI, remove=True)
+                        react(FAILED_EMOJI)
+                    return
+
+                if routed["command"] == "mark_pr_ready":
+                    if not tracked_branch:
+                        reply("I don't have a branch tracked for this thread yet -- "
+                              "tell me to start work on one first, e.g. \"get started on feature/x\".")
+                        return
+                    react(WORKING_EMOJI)
+                    log.info("Mark PR ready requested for tracked branch %s@%s (from %s/%s)",
+                             tracked_branch, repo, "slack", thread_key)
+                    pr = get_pr_for_branch(github_auth, repo, tracked_branch)
+                    if pr is None:
+                        reply(f"Couldn't find a PR for `{tracked_branch}` in {repo} -- open one first.")
+                        react(WORKING_EMOJI, remove=True)
+                        react(FAILED_EMOJI)
+                        return
+                    if not pr.get("draft"):
+                        reply(f"PR #{pr['number']} is already ready for review: {pr['html_url']}")
+                        react(WORKING_EMOJI, remove=True)
+                        react(DONE_EMOJI)
+                        return
+                    ok = mark_pr_ready(github_auth, pr["node_id"])
+                    if ok:
+                        reply(f"PR #{pr['number']} is now ready for review: {pr['html_url']}")
+                        react(WORKING_EMOJI, remove=True)
+                        react(DONE_EMOJI)
+                    else:
+                        reply(f"Couldn't mark PR #{pr['number']} ready -- check chat-bridge logs.")
                         react(WORKING_EMOJI, remove=True)
                         react(FAILED_EMOJI)
                     return
