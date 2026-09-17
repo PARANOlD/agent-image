@@ -28,7 +28,7 @@ import tempfile
 
 import requests
 
-from github_actions import get_branch
+from github_actions import get_branch, get_pr_for_branch
 
 log = logging.getLogger("github_pr_creator")
 
@@ -161,6 +161,14 @@ def open_pr_for_branch(auth, repo: str, branch: str, draft: bool = True) -> dict
     )
     if not resp.ok:
         log.error("PR creation for existing branch failed: %s %s", resp.status_code, resp.text[:500])
+        if resp.status_code == 422 and "already exists" in resp.text:
+            existing = get_pr_for_branch(auth, repo, branch)
+            if existing is not None:
+                status = "draft -- say \"mark it ready\" to take it out of draft" if existing.get("draft") else "already ready for review"
+                raise PrCreationError(
+                    f"There's already PR #{existing['number']} for `{branch}` ({status}): {existing['html_url']}"
+                )
+            raise PrCreationError(f"A PR already exists for `{branch}`, but I couldn't look up its details.")
         raise PrCreationError(f"Opening the PR failed ({resp.status_code}).")
 
     return {"pr_url": resp.json()["html_url"], "branch": branch, "draft": draft}

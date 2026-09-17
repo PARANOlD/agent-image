@@ -4,8 +4,11 @@ something to run on every test invocation. It was validated manually
 against PARANOlD/prototyping (PR #2) before this shipped. What's covered
 here: input validation (no model/network), and the two LLM calls that
 feed it (integration, live model)."""
+import os
+
 import pytest
 
+from github_app_auth import GitHubAppAuth
 from github_pr_creator import (
     PrCreationError,
     _generate_metadata,
@@ -53,3 +56,21 @@ def test_generate_pr_title_and_body_produces_usable_fields():
     meta = _generate_pr_title_and_body("feature/update-wizard", "Add multi-step update wizard UI")
     assert meta["title"]
     assert meta["body"]
+
+
+@pytest.mark.integration
+def test_open_pr_for_branch_explains_when_a_pr_already_exists():
+    # feature/update-wizard genuinely already has an open PR (#3) in the
+    # real test repo -- this call is expected to be rejected by GitHub
+    # (422, no mutation happens), and should come back as a specific,
+    # actionable message rather than a bare "(422)".
+    auth = GitHubAppAuth(
+        app_id=os.environ["GITHUB_APP_ID"],
+        private_key_path=os.environ["GITHUB_APP_PRIVATE_KEY_PATH"],
+        installation_id=os.environ["GITHUB_APP_INSTALLATION_ID"],
+    )
+    with pytest.raises(PrCreationError) as exc_info:
+        open_pr_for_branch(auth, "PARANOlD/prototyping", "feature/update-wizard")
+    message = str(exc_info.value)
+    assert "already" in message
+    assert "#3" in message
